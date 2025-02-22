@@ -265,13 +265,16 @@ class TestRepo(unittest.TestCase):
             raw_repo.index.write()
             author = pygit2.Signature("Test User", "test@example.com")
             tree = raw_repo.index.write_tree()
+            # Get the parent commit
+            parent = raw_repo.head.target
+            
             raw_repo.create_commit(
                 "HEAD",
                 author,
                 author,
                 "initial commit",
                 tree,
-                []
+                [parent]
             )
             
             # Set HEAD to main branch (which was already created)
