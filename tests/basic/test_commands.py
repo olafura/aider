@@ -358,7 +358,7 @@ class TestCommands(TestCase):
             commands.cmd_git("commit -a -m msg")
 
             # Check if the file has been committed to the repository
-            repo = GitRepo(tempdir)
+            repo = GitRepo(io=None, fnames=[], git_dname=tempdir)
             files_in_repo = [entry.path for entry in repo.index]
             self.assertIn("test.txt", files_in_repo)
 
@@ -1149,7 +1149,7 @@ class TestCommands(TestCase):
 
     def test_cmd_undo_with_newly_committed_file(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = GitRepo(repo_dir)
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1185,7 +1185,7 @@ class TestCommands(TestCase):
 
     def test_cmd_undo_on_first_commit(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = GitRepo(repo_dir)
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1440,7 +1440,7 @@ class TestCommands(TestCase):
 
     def test_cmd_diff(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = GitRepo(repo_dir)
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
