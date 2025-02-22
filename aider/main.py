@@ -10,7 +10,7 @@ from dataclasses import fields
 from pathlib import Path
 
 try:
-    import git
+    import pygit2
 except ImportError:
     git = None
 

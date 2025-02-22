@@ -5,7 +5,6 @@ import time
 import unittest
 from pathlib import Path
 
-import git
 import pygit2
 
 from aider.dump import dump  # noqa: F401

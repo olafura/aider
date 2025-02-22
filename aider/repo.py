@@ -3,12 +3,12 @@ import time
 from pathlib import Path, PurePosixPath
 
 try:
-    import git
+    import pygit2
 
     ANY_GIT_ERROR = [
-        git.exc.ODBError,
-        git.exc.GitError,
-        git.exc.InvalidGitRepositoryError,
+        pygit2.GitError,
+        pygit2.AlreadyExistsError,
+        pygit2.InvalidSpecError,
     ]
 except ImportError:
     git = None

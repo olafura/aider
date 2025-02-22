@@ -8,7 +8,6 @@ from io import StringIO
 from pathlib import Path
 from unittest import TestCase, mock
 
-import git
 import pygit2
 import pyperclip
 
