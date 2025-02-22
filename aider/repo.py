@@ -109,13 +109,14 @@ class GitRepo:
         num_repos = len(set(repo_paths))
 
         if num_repos == 0:
-            raise FileNotFoundError
-        if num_repos > 1:
-            self.io.tool_error("Files are in different git repos.")
-            raise FileNotFoundError
-
-        self.repo = pygit2.Repository(repo_paths.pop())
-        self.root = utils.safe_abs_path(self.repo.workdir)
+            self.repo = None
+            self.root = os.path.abspath(git_dname) if git_dname else os.getcwd()
+        else:
+            if num_repos > 1:
+                self.io.tool_error("Files are in different git repos.")
+                raise FileNotFoundError
+            self.repo = pygit2.Repository(repo_paths.pop())
+            self.root = utils.safe_abs_path(self.repo.workdir)
 
         if aider_ignore_file:
             self.aider_ignore_file = Path(aider_ignore_file)

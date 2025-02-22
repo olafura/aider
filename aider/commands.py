@@ -7,6 +7,14 @@ import tempfile
 from collections import OrderedDict
 from os.path import expanduser
 from pathlib import Path
+_original_relative_to = Path.relative_to
+def safe_relative_to(self, other, *args, **kwargs):
+    try:
+        return _original_relative_to(self, other, *args, **kwargs)
+    except ValueError:
+        abs_self = self if self.is_absolute() else Path.cwd() / self
+        return Path(os.path.relpath(str(abs_self.resolve()), str(other)))
+Path.relative_to = safe_relative_to
 
 import pyperclip
 from PIL import Image, ImageGrab
