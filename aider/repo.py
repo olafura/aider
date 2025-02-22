@@ -50,7 +50,7 @@ class GitRepo:
             path = "."
         path = Path(path).resolve()
         repo = pygit2.init_repository(str(path))
-        return cls(git_dname=str(path))
+        return cls(io=None, fnames=[], git_dname=str(path))
 
     def __init__(
         self,
@@ -66,6 +66,8 @@ class GitRepo:
         commit_prompt=None,
         subtree_only=False,
     ):
+        if fnames is None:
+            fnames = []
         self.io = io
         self.models = models
 
@@ -130,7 +132,10 @@ class GitRepo:
     @property
     def index(self):
         """Access to the repository index"""
-        return self.repo.index
+        if not hasattr(self, '_index'):
+            self._index = self.repo.index
+            self._index.read()
+        return self._index
 
     class Git:
         """A simple Git interface to mimic GitPython's git attribute using pygit2."""
