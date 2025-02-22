@@ -87,10 +87,11 @@ class GitRepo:
                 fname = fname.parent
 
             try:
-                repo_path = git.Repo(fname, search_parent_directories=True).working_dir
-                repo_path = utils.safe_abs_path(repo_path)
-                repo_paths.append(repo_path)
-            except ANY_GIT_ERROR:
+                repo_path = pygit2.discover_repository(str(fname))
+                if repo_path:
+                    repo_path = utils.safe_abs_path(Path(repo_path).parent)
+                    repo_paths.append(repo_path)
+            except pygit2.GitError:
                 pass
 
         num_repos = len(set(repo_paths))
@@ -101,9 +102,8 @@ class GitRepo:
             self.io.tool_error("Files are in different git repos.")
             raise FileNotFoundError
 
-        # https://github.com/gitpython-developers/GitPython/issues/427
-        self.repo = git.Repo(repo_paths.pop(), odbt=git.GitDB)
-        self.root = utils.safe_abs_path(self.repo.working_tree_dir)
+        self.repo = pygit2.Repository(repo_paths.pop())
+        self.root = utils.safe_abs_path(self.repo.workdir)
 
         if aider_ignore_file:
             self.aider_ignore_file = Path(aider_ignore_file)
