@@ -102,7 +102,8 @@ class TestRepo(unittest.TestCase):
 
             fname2 = Path("bar.txt")
             fname2.touch()
-            repo.git.add(str(fname2))
+            repo.index.add(str(fname2))
+            repo.index.write()
             repo.git.commit("-m", "bar")
 
             fname3 = Path("baz.txt")
@@ -145,7 +146,16 @@ class TestRepo(unittest.TestCase):
             fname.write_text("two\n")
             repo.index.add(str(fname))
             repo.index.write()
-            repo.git.commit("-m", "second")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = repo.index.write_tree()
+            repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "second",
+                tree,
+                []
+            )
 
             git_repo = GitRepo(InputOutput(), None, ".")
             diffs = git_repo.diff_commits(False, "HEAD~1", "HEAD")
@@ -229,7 +239,16 @@ class TestRepo(unittest.TestCase):
             fname.touch()
             raw_repo.index.add(str(fname))
             raw_repo.index.write()
-            raw_repo.git.commit("-m", "initial commit")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = raw_repo.index.write_tree()
+            raw_repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "initial commit",
+                tree,
+                []
+            )
 
             io = InputOutput()
             git_repo = GitRepo(io, None, None)
@@ -276,7 +295,8 @@ class TestRepo(unittest.TestCase):
             try:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.touch()
-                repo.git.add(str(file_path))
+                repo.index.add(str(file_path))
+                repo.index.write()
                 created_files.append(Path(filename))
             except OSError:
                 # windows won't allow files with quotes, that's ok
@@ -313,7 +333,16 @@ class TestRepo(unittest.TestCase):
             self.assertIn(str(fname), fnames)
 
             # commit it, better still be there
-            raw_repo.git.commit("-m", "new")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = raw_repo.index.write_tree()
+            raw_repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "new",
+                tree,
+                []
+            )
             fnames = git_repo.get_tracked_files()
             self.assertIn(str(fname), fnames)
 
@@ -346,7 +375,16 @@ class TestRepo(unittest.TestCase):
             self.assertIn(str(fname), fnames)
 
             # commit it, better still be there
-            raw_repo.git.commit("-m", "new")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = raw_repo.index.write_tree()
+            raw_repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "new",
+                tree,
+                []
+            )
             fnames = git_repo.get_tracked_files()
             self.assertIn(str(fname), fnames)
 
@@ -399,7 +437,16 @@ class TestRepo(unittest.TestCase):
             self.assertIn(str(fname), fnames)
 
             # commit it, better still be there
-            raw_repo.git.commit("-m", "new")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = raw_repo.index.write_tree()
+            raw_repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "new",
+                tree,
+                []
+            )
             fnames = git_repo.get_tracked_files()
             self.assertIn(str(fname), fnames)
 
@@ -423,7 +470,16 @@ class TestRepo(unittest.TestCase):
             raw_repo.index.add(str(subdir_file)) 
             raw_repo.index.add(str(another_subdir_file))
             raw_repo.index.write()
-            raw_repo.git.commit("-m", "Initial commit")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = raw_repo.index.write_tree()
+            raw_repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Initial commit",
+                tree,
+                []
+            )
 
             # Change to the subdir
             os.chdir(subdir_file.parent)
@@ -453,7 +509,8 @@ class TestRepo(unittest.TestCase):
             # add it, but no commits at all in the raw_repo yet
             fname = Path("file.txt")
             fname.touch()
-            raw_repo.git.add(str(fname))
+            raw_repo.index.add(str(fname))
+            raw_repo.index.write()
             raw_repo.git.commit("-m", "new")
 
             git_repo = GitRepo(InputOutput(), None, None)
