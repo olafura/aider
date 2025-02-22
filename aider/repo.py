@@ -83,6 +83,7 @@ class GitRepo:
         self.ignore_file_cache = {}
 
         if git_dname:
+            git_dname = os.path.abspath(git_dname)
             check_fnames = [git_dname]
         elif fnames:
             check_fnames = fnames
@@ -228,7 +229,7 @@ class GitRepo:
             if fnames:
                 for fname in fnames:
                     try:
-                        rel_path = str(Path(fname).relative_to(self.root))
+                        rel_path = os.path.relpath(fname, self.root)
                         self.repo.index.add(rel_path)
                     except (ValueError, pygit2.GitError) as err:
                         self.io.tool_error(f"Unable to add {fname}: {err}")

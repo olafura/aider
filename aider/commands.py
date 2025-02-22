@@ -62,6 +62,8 @@ class Commands:
     ):
         self.io = io
         self.coder = coder
+        if not hasattr(self.coder, "aider_commit_hashes"):
+            self.coder.aider_commit_hashes = set()
         self.parser = parser
         self.args = args
         self.verbose = verbose
