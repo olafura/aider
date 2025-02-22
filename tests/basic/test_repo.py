@@ -4,7 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import git
 import pygit2
@@ -14,6 +14,16 @@ from aider.io import InputOutput
 from aider.models import Model
 from aider.repo import GitRepo
 from aider.utils import GitTemporaryDirectory
+
+# Mock sounddevice module
+class MockSoundDevice:
+    def query_devices(self):
+        return [{'name': 'Mock Device', 'max_input_channels': 1}]
+
+# Patch sounddevice and soundfile at module level
+@patch('aider.voice.sd', MockSoundDevice())
+@patch('aider.voice.sf', MagicMock())
+class TestVoice(unittest.TestCase):
 
 
 class TestRepo(unittest.TestCase):
