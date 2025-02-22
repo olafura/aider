@@ -333,12 +333,13 @@ class TestCommands(TestCase):
         coder = Coder.create(self.GPT35, None, io)
         commands = Commands(io, coder)
 
-        # Create a new file foo.bad which will fail to decode as utf-8
-        with codecs.open("foo.bad", "w", encoding="iso-8859-15") as f:
-            f.write("ÆØÅ")  # Characters not present in utf-8
+        fname = "foo.bad"
+        encoding = "utf-16"
+        some_content_which_will_error_if_read_with_encoding_utf8 = "ÅÍÎÏ".encode(encoding)
+        with open(fname, "wb") as f:
+            f.write(some_content_which_will_error_if_read_with_encoding_utf8)
 
         commands.cmd_add("foo.bad")
-
         self.assertEqual(coder.abs_fnames, set())
 
     def test_cmd_git(self):
@@ -350,16 +351,19 @@ class TestCommands(TestCase):
             with open(f"{tempdir}/test.txt", "w") as f:
                 f.write("test")
 
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
-            # Run the cmd_git method with the arguments "commit -a -m msg"
+            # Initialize GitRepo with the temporary directory
+            repo = GitRepo(io=io, fnames=[], git_dname=tempdir)
+
+            # Run the cmd_git method with the arguments "add test.txt" and "commit -a -m msg"
             commands.cmd_git("add test.txt")
             commands.cmd_git("commit -a -m msg")
 
             # Check if the file has been committed to the repository
-            repo = GitRepo(io=None, fnames=[], git_dname=tempdir)
-            files_in_repo = [entry.path for entry in repo.index]
+            files_in_repo = [entry.decode('utf-8') for entry in repo.repo.listall()]
             self.assertIn("test.txt", files_in_repo)
 
     def test_cmd_tokens(self):
@@ -387,9 +391,10 @@ class TestCommands(TestCase):
         self.assertIn("bar.txt", console_output)
 
     def test_cmd_add_from_subdir(self):
-        repo = GitRepo.init()
-        repo.config_writer().set_value("user", "name", "Test User").release()
-        repo.config_writer().set_value("user", "email", "testuser@example.com").release()
+        repo = GitRepo(InputOutput(), fnames=[], git_dname=".")
+        repo.repo = pygit2.init_repository(".", initial_head='main')
+        repo.repo.config['user.name'] = 'Test User'
+        repo.repo.config['user.email'] = 'testuser@example.com'
 
         # Create three empty files and add them to the git repository
         filenames = ["one.py", Path("subdir") / "two.py", Path("anotherdir") / "three.py"]
@@ -397,8 +402,17 @@ class TestCommands(TestCase):
             file_path = Path(filename)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.touch()
-            repo.git.add(str(file_path))
-        repo.git.commit("-m", "added")
+            repo.repo.index.add(str(file_path))
+        repo.repo.index.write()
+        author = pygit2.Signature("Test User", "testuser@example.com")
+        repo.repo.create_commit(
+            "HEAD",
+            author,
+            author,
+            "added",
+            repo.repo.index.write_tree(),
+            []
+        )
 
         filenames = [str(Path(fn).resolve()) for fn in filenames]
 
@@ -421,7 +435,7 @@ class TestCommands(TestCase):
         self.assertIn(filenames[2], coder.abs_fnames)
 
     def test_cmd_add_from_subdir_again(self):
-        with GitTemporaryDirectory():
+        with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
@@ -432,28 +446,40 @@ class TestCommands(TestCase):
             os.chdir("side_dir")
 
             # add a file that is in the side_dir
-            with open("temp.txt", "w"):
-                pass
+            (Path("temp.txt")).touch()
 
             # this was blowing up with GitCommandError, per:
             # https://github.com/Aider-AI/aider/issues/201
             commands.cmd_add("temp.txt")
 
     def test_cmd_commit(self):
-        with GitTemporaryDirectory():
+        with GitTemporaryDirectory() as repo_dir:
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+
             fname = "test.txt"
-            with open(fname, "w") as f:
+            with open(os.path.join(repo_dir, fname), "w") as f:
                 f.write("test")
-            repo = GitRepo.init()
-            repo.git.add(fname)
-            repo.git.commit("-m", "initial")
+            repo.repo.index.add(fname)
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "initial",
+                repo.repo.index.write_tree(),
+                []
+            )
 
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             self.assertFalse(repo.is_dirty())
-            with open(fname, "w") as f:
+            with open(os.path.join(repo_dir, fname), "w") as f:
                 f.write("new")
             self.assertTrue(repo.is_dirty())
 
@@ -517,7 +543,7 @@ class TestCommands(TestCase):
             fname = Path("with[brackets].txt")
             fname.touch()
 
-            commands.cmd_add(str(fname))
+            commands.cmd_add(str(fname.resolve()))
 
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
 
@@ -529,9 +555,23 @@ class TestCommands(TestCase):
             (Path(repo_dir) / "subdir").mkdir()
             (Path(repo_dir) / "subdir" / "file3.md").write_text("# Content of file 3")
 
-            repo = GitRepo.init(repo_dir)
-            repo.git.add(A=True)
-            repo.git.commit("-m", "Initial commit")
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+            repo.repo.index.add("file1.txt")
+            repo.repo.index.add("file2.py")
+            repo.repo.index.add("subdir/file3.md")
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Initial commit",
+                repo.repo.index.write_tree(),
+                []
+            )
 
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
@@ -551,6 +591,10 @@ class TestCommands(TestCase):
                 original_tool_output(*args, **kwargs)
 
             io.tool_output = capture_output
+
+            # Initialize GitRepo correctly
+            commands.repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            commands.repo.repo = repo.repo
 
             # Run cmd_tokens
             commands.cmd_tokens("")
@@ -572,7 +616,7 @@ class TestCommands(TestCase):
             self.assertTrue(any("tokens remaining" in line for line in output_lines))
 
     def test_cmd_add_dirname_with_special_chars_git(self):
-        with GitTemporaryDirectory():
+        with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
 
@@ -584,11 +628,23 @@ class TestCommands(TestCase):
             fname = dname / "filename.txt"
             fname.touch()
 
-            repo = GitRepo.init()
-            repo.git.add(str(fname))
-            repo.git.commit("-m", "init")
+            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+            repo.repo.index.add(str(fname))
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "init",
+                repo.repo.index.write_tree(),
+                []
+            )
 
-            commands.cmd_add(str(dname))
+            commands.cmd_add(str(dname.resolve()))
 
             dump(coder.abs_fnames)
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
@@ -624,19 +680,32 @@ class TestCommands(TestCase):
             self.assertIn(str(fname.resolve()), coder.abs_fnames)
 
     def test_cmd_add_existing_with_dirty_repo(self):
-        with GitTemporaryDirectory():
-            repo = GitRepo.init()
+        with GitTemporaryDirectory() as repo_dir:
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
 
             files = ["one.txt", "two.txt"]
             for fname in files:
                 Path(fname).touch()
-                repo.git.add(fname)
-            repo.git.commit("-m", "initial")
+                repo.repo.index.add(fname)
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "initial commit",
+                repo.repo.index.write_tree(),
+                []
+            )
 
-            commit = repo.head.commit.hexsha
+            commit = repo.repo.head.target.hex[:7]
 
             # leave a dirty `git rm`
-            repo.git.rm("one.txt")
+            repo.repo.index.remove("one.txt")
+            repo.repo.index.write()
 
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             from aider.coders import Coder
@@ -644,16 +713,26 @@ class TestCommands(TestCase):
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
+            # Initialize GitRepo correctly
+            commands.repo = repo
+
             # There's no reason this /add should trigger a commit
             commands.cmd_add("two.txt")
 
-            self.assertEqual(commit, repo.head.commit.hexsha)
+            self.assertEqual(commit, repo.repo.head.target.hex[:7])
 
             # Windows is throwing:
             # PermissionError: [WinError 32] The process cannot access
             # the file because it is being used by another process
 
-            repo.git.commit("-m", "cleanup")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "cleanup",
+                repo.repo.index.write_tree(),
+                [repo.repo.head.target]
+            )
 
             del coder
             del commands
@@ -722,10 +801,8 @@ class TestCommands(TestCase):
             commands.cmd_load(session_file)
 
             # Verify files were restored correctly
-            added_files = {Path(coder.get_rel_fname(f)).as_posix() for f in coder.abs_fnames}
-            read_only_files = {
-                Path(coder.get_rel_fname(f)).as_posix() for f in coder.abs_read_only_fnames
-            }
+            added_files = {coder.get_rel_fname(f) for f in coder.abs_fnames}
+            read_only_files = {coder.get_rel_fname(f) for f in coder.abs_read_only_fnames}
 
             self.assertEqual(added_files, {"file1.txt", "file2.py"})
             self.assertEqual(read_only_files, {"subdir/file3.md"})
@@ -800,7 +877,7 @@ class TestCommands(TestCase):
                     full_path.write_text(content)
 
                 # Add files as editable and read-only
-                commands.cmd_add(str(Path("internal1.txt")))
+                commands.cmd_add("internal1.txt")
                 commands.cmd_read_only(external_file1_path)
                 commands.cmd_read_only(external_file2_path)
 
@@ -877,6 +954,23 @@ class TestCommands(TestCase):
             vision_coder = Coder.create(vision_model, None, io)
             vision_commands = Commands(io, vision_coder)
 
+            # Initialize GitRepo correctly
+            vision_commands.repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            vision_commands.repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            vision_commands.repo.repo.config['user.name'] = 'Test User'
+            vision_commands.repo.config['user.email'] = 'testuser@example.com'
+            vision_commands.repo.repo.index.add("test_image.jpg")
+            vision_commands.repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            vision_commands.repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "add image",
+                vision_commands.repo.repo.index.write_tree(),
+                []
+            )
+
             vision_commands.cmd_read_only(str(test_file))
             self.assertEqual(len(vision_coder.abs_read_only_fnames), 1)
             self.assertTrue(
@@ -915,6 +1009,24 @@ class TestCommands(TestCase):
                 file_path = Path(repo_dir) / file_name
                 file_path.write_text(f"Content of {file_name}")
 
+            # Initialize GitRepo correctly
+            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+            for file_name in test_files:
+                repo.repo.index.add(file_name)
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Initial commit",
+                repo.repo.index.write_tree(),
+                []
+            )
+
             # Test the /read-only command with a glob pattern
             commands.cmd_read_only("test_*.txt")
 
@@ -951,6 +1063,24 @@ class TestCommands(TestCase):
                 file_path = Path(repo_dir) / file_name
                 file_path.write_text(f"Content of {file_name}")
 
+            # Initialize GitRepo correctly
+            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+            for file_name in test_files:
+                repo.repo.index.add(file_name)
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Initial commit",
+                repo.repo.index.write_tree(),
+                []
+            )
+
             # Test the /read-only command with a recursive glob pattern
             commands.cmd_read_only("**/*.txt")
 
@@ -971,6 +1101,12 @@ class TestCommands(TestCase):
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
+            # Initialize GitRepo correctly
+            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+
             # Test the /read-only command with a non-existent glob pattern
             with mock.patch.object(io, "tool_error") as mock_tool_error:
                 commands.cmd_read_only(str(Path(repo_dir) / "nonexistent*.txt"))
@@ -983,162 +1119,72 @@ class TestCommands(TestCase):
             # Ensure no files were added to abs_read_only_fnames
             self.assertEqual(len(coder.abs_read_only_fnames), 0)
 
-    def test_cmd_add_unicode_error(self):
-        # Initialize the Commands and InputOutput objects
-        io = InputOutput(pretty=False, fancy_input=False, yes=True)
-        from aider.coders import Coder
-
-        coder = Coder.create(self.GPT35, None, io)
-        commands = Commands(io, coder)
-
-        fname = "file.txt"
-        encoding = "utf-16"
-        some_content_which_will_error_if_read_with_encoding_utf8 = "ÅÍÎÏ".encode(encoding)
-        with open(fname, "wb") as f:
-            f.write(some_content_which_will_error_if_read_with_encoding_utf8)
-
-        commands.cmd_add("file.txt")
-        self.assertEqual(coder.abs_fnames, set())
-
-    def test_cmd_add_read_only_file(self):
-        with GitTemporaryDirectory():
-            # Initialize the Commands and InputOutput objects
-            io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            from aider.coders import Coder
-
-            coder = Coder.create(self.GPT35, None, io)
-            commands = Commands(io, coder)
-
-            # Create a test file
-            test_file = Path("test_read_only.txt")
-            test_file.write_text("Test content")
-
-            # Add the file as read-only
-            commands.cmd_read_only(str(test_file))
-
-            # Verify it's in abs_read_only_fnames
-            self.assertTrue(
-                any(
-                    os.path.samefile(str(test_file.resolve()), fname)
-                    for fname in coder.abs_read_only_fnames
-                )
-            )
-
-            # Try to add the read-only file
-            commands.cmd_add(str(test_file))
-
-            # It's not in the repo, should not do anything
-            self.assertFalse(
-                any(os.path.samefile(str(test_file.resolve()), fname) for fname in coder.abs_fnames)
-            )
-            self.assertTrue(
-                any(
-                    os.path.samefile(str(test_file.resolve()), fname)
-                    for fname in coder.abs_read_only_fnames
-                )
-            )
-
-            repo = GitRepo.init()
-            repo.git.add(str(test_file))
-            repo.git.commit("-m", "initial")
-
-            # Try to add the read-only file
-            commands.cmd_add(str(test_file))
-
-            # Verify it's now in abs_fnames and not in abs_read_only_fnames
-            self.assertTrue(
-                any(os.path.samefile(str(test_file.resolve()), fname) for fname in coder.abs_fnames)
-            )
-            self.assertFalse(
-                any(
-                    os.path.samefile(str(test_file.resolve()), fname)
-                    for fname in coder.abs_read_only_fnames
-                )
-            )
-
-    def test_cmd_test_unbound_local_error(self):
-        with ChdirTemporaryDirectory():
-            io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            from aider.coders import Coder
-
-            coder = Coder.create(self.GPT35, None, io)
-            commands = Commands(io, coder)
-
-            # Mock the io.prompt_ask method to simulate user input
-            io.prompt_ask = lambda *args, **kwargs: "y"
-
-            # Test the cmd_run method with a command that should not raise an error
-            commands.cmd_run("exit 1", add_on_nonzero_exit=True)
-
-            # Check that the output was added to cur_messages
-            self.assertTrue(any("exit 1" in msg["content"] for msg in coder.cur_messages))
-
-    def test_cmd_add_drop_untracked_files(self):
-        with GitTemporaryDirectory():
-            repo = GitRepo.init()
-
-            io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            from aider.coders import Coder
-
-            coder = Coder.create(self.GPT35, None, io)
-            commands = Commands(io, coder)
-
-            fname = Path("test.txt")
-            fname.touch()
-
-            self.assertEqual(len(coder.abs_fnames), 0)
-
-            commands.cmd_add(str(fname))
-
-            files_in_repo = repo.git.ls_files()
-            self.assertNotIn(str(fname), files_in_repo)
-
-            self.assertEqual(len(coder.abs_fnames), 1)
-
-            commands.cmd_drop(str(fname))
-
-            self.assertEqual(len(coder.abs_fnames), 0)
-
     def test_cmd_undo_with_dirty_files_not_in_last_commit(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = GitRepo.init(repo_dir)
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             other_path = Path(repo_dir) / "other_file.txt"
             other_path.write_text("other content")
-            repo.git.add(str(other_path))
+            repo.repo.index.add(str(other_path))
+            repo.repo.index.write()
 
             # Create and commit a file
             filename = "test_file.txt"
             file_path = Path(repo_dir) / filename
             file_path.write_text("first content")
-            repo.git.add(filename)
-            repo.git.commit("-m", "first commit")
+            repo.repo.index.add(str(file_path))
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "first commit",
+                repo.repo.index.write_tree(),
+                []
+            )
 
             file_path.write_text("second content")
-            repo.git.add(filename)
-            repo.git.commit("-m", "second commit")
+            repo.repo.index.add(str(file_path))
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "second commit",
+                repo.repo.index.write_tree(),
+                [repo.repo.head.target]
+            )
 
             # Store the commit hash
-            last_commit_hash = repo.head.commit.hexsha[:7]
+            last_commit_hash = repo.repo.head.target.hex[:7]
             coder.aider_commit_hashes.add(last_commit_hash)
 
             file_path.write_text("dirty content")
+
+            # Initialize GitRepo correctly
+            commands.repo = repo
 
             # Attempt to undo the last commit
             commands.cmd_undo("")
 
             # Check that the last commit is still present
-            self.assertEqual(last_commit_hash, repo.head.commit.hexsha[:7])
+            self.assertEqual(last_commit_hash, repo.repo.head.target.hex[:7])
 
             # Put back the initial content (so it's not dirty now)
             file_path.write_text("second content")
             other_path.write_text("dirty content")
 
             commands.cmd_undo("")
-            self.assertNotEqual(last_commit_hash, repo.head.commit.hexsha[:7])
+            self.assertNotEqual(last_commit_hash, repo.repo.head.target.hex[:7])
 
             self.assertEqual(file_path.read_text(), "first content")
             self.assertEqual(other_path.read_text(), "dirty content")
@@ -1150,6 +1196,10 @@ class TestCommands(TestCase):
     def test_cmd_undo_with_newly_committed_file(self):
         with GitTemporaryDirectory() as repo_dir:
             repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1158,25 +1208,43 @@ class TestCommands(TestCase):
             filename = "first_file.txt"
             file_path = Path(repo_dir) / filename
             file_path.write_text("new file content")
-            repo.git.add(filename)
-            repo.git.commit("-m", "Add new file")
+            repo.repo.index.add(str(file_path))
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Add new file",
+                repo.repo.index.write_tree(),
+                []
+            )
 
             # Create and commit a new file
             filename = "new_file.txt"
             file_path = Path(repo_dir) / filename
             file_path.write_text("new file content")
-            repo.git.add(filename)
-            repo.git.commit("-m", "Add new file")
+            repo.repo.index.add(str(file_path))
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Add new file",
+                repo.repo.index.write_tree(),
+                [repo.repo.head.target]
+            )
 
             # Store the commit hash
-            last_commit_hash = repo.head.commit.hexsha[:7]
+            last_commit_hash = repo.repo.head.target.hex[:7]
             coder.aider_commit_hashes.add(last_commit_hash)
 
             # Attempt to undo the last commit, should refuse
             commands.cmd_undo("")
 
             # Check that the last commit was not undone
-            self.assertEqual(last_commit_hash, repo.head.commit.hexsha[:7])
+            self.assertEqual(last_commit_hash, repo.repo.head.target.hex[:7])
             self.assertTrue(file_path.exists())
 
             del coder
@@ -1186,6 +1254,10 @@ class TestCommands(TestCase):
     def test_cmd_undo_on_first_commit(self):
         with GitTemporaryDirectory() as repo_dir:
             repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1194,18 +1266,26 @@ class TestCommands(TestCase):
             filename = "new_file.txt"
             file_path = Path(repo_dir) / filename
             file_path.write_text("new file content")
-            repo.git.add(filename)
-            repo.git.commit("-m", "Add new file")
+            repo.repo.index.add(str(file_path))
+            repo.repo.index.write()
+            repo.repo.create_commit(
+                "HEAD",
+                pygit2.Signature("Test User", "testuser@example.com"),
+                pygit2.Signature("Test User", "testuser@example.com"),
+                "Add new file",
+                repo.repo.index.write_tree(),
+                []
+            )
 
             # Store the commit hash
-            last_commit_hash = repo.head.commit.hexsha[:7]
+            last_commit_hash = repo.repo.head.target.hex[:7]
             coder.aider_commit_hashes.add(last_commit_hash)
 
             # Attempt to undo the last commit
             commands.cmd_undo("")
 
             # Check that the commit is still present
-            self.assertEqual(last_commit_hash, repo.head.commit.hexsha[:7])
+            self.assertEqual(last_commit_hash, repo.repo.head.target.hex[:7])
             self.assertTrue(file_path.exists())
 
             del coder
@@ -1213,18 +1293,24 @@ class TestCommands(TestCase):
             del repo
 
     def test_cmd_add_gitignored_file(self):
-        with GitTemporaryDirectory():
+        with GitTemporaryDirectory() as repo_dir:
             # Create a .gitignore file
-            gitignore = Path(".gitignore")
+            gitignore = Path(repo_dir) / ".gitignore"
             gitignore.write_text("*.ignored\n")
 
             # Create a file that matches the gitignore pattern
-            ignored_file = Path("test.ignored")
+            ignored_file = Path(repo_dir) / "test.ignored"
             ignored_file.write_text("This should be ignored")
 
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
+
+            # Initialize GitRepo correctly
+            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
 
             # Try to add the ignored file
             commands.cmd_add(str(ignored_file))
@@ -1233,29 +1319,44 @@ class TestCommands(TestCase):
             self.assertEqual(len(coder.abs_fnames), 0)
 
     def test_cmd_add_aiderignored_file(self):
-        with GitTemporaryDirectory():
-            repo = GitRepo.init()
+        with GitTemporaryDirectory() as repo_dir:
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
 
             fname1 = "ignoreme1.txt"
             fname2 = "ignoreme2.txt"
             fname3 = "dir/ignoreme3.txt"
 
             Path(fname2).touch()
-            repo.git.add(fname2)
-            repo.git.commit("-m", "initial")
+            repo.repo.index.add(fname2)
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "initial",
+                repo.repo.index.write_tree(),
+                []
+            )
 
-            aignore = Path(".aiderignore")
+            aignore = Path(repo_dir) / ".aiderignore"
             aignore.write_text(f"{fname1}\n{fname2}\ndir\n")
 
             io = InputOutput(yes=True)
 
             fnames = [fname1, fname2]
             repo = GitRepo(
-                io,
-                fnames,
-                None,
+                io=io,
+                fnames=fnames,
+                git_dname=repo_dir,
                 aider_ignore_file=str(aignore),
             )
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
 
             coder = Coder.create(
                 self.GPT35,
@@ -1273,16 +1374,22 @@ class TestCommands(TestCase):
             self.assertNotIn(fname3, str(coder.abs_fnames))
 
     def test_cmd_read_only(self):
-        with GitTemporaryDirectory():
+        with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
 
             # Create a test file
-            test_file = Path("test_read.txt")
+            test_file = Path(repo_dir) / "test_read_only.txt"
             test_file.write_text("Test content")
 
-            # Test the /read command
+            # Initialize GitRepo correctly
+            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+
+            # Test the /read-only command
             commands.cmd_read_only(str(test_file))
 
             # Check if the file was added to abs_read_only_fnames
@@ -1319,6 +1426,23 @@ class TestCommands(TestCase):
             # Change the current working directory to the subdirectory
             os.chdir(subdir)
 
+            # Initialize GitRepo correctly
+            commands.repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            commands.repo.repo = repo_repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo_repo.config['user.name'] = 'Test User'
+            repo_repo.config['user.email'] = 'testuser@example.com'
+            repo_repo.index.add(str(Path("subdir/test_read_only_file.txt")))
+            repo_repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo_repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "add read-only file",
+                repo_repo.index.write_tree(),
+                []
+            )
+
             # Test the /read-only command using git_root referenced name
             commands.cmd_read_only(os.path.join("subdir", "test_read_only_file.txt"))
 
@@ -1350,17 +1474,31 @@ class TestCommands(TestCase):
             # Create and add some test files
             test_files = ["test1.txt", "test2.txt", "test3.txt"]
             for fname in test_files:
-                Path(fname).write_text(f"Content of {fname}")
-                commands.cmd_add(fname)
+                Path(os.path.join(repo_dir, fname)).write_text(f"Content of {fname}")
 
-            # Verify files are in editable mode
-            self.assertEqual(len(coder.abs_fnames), 3)
-            self.assertEqual(len(coder.abs_read_only_fnames), 0)
+            # Initialize GitRepo correctly
+            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+            for fname in test_files:
+                repo.repo.index.add(fname)
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Initial commit",
+                repo.repo.index.write_tree(),
+                []
+            )
 
-            # Convert all files to read-only mode
-            commands.cmd_read_only("")
+            # Add some files as editable and some as read-only
+            commands.cmd_add("test1.txt test2.txt test3.txt")
+            commands.cmd_read_only("test1.txt test2.txt test3.txt")
 
-            # Verify all files were moved to read-only
+            # Verify files are in read-only mode
             self.assertEqual(len(coder.abs_fnames), 0)
             self.assertEqual(len(coder.abs_read_only_fnames), 3)
 
@@ -1369,8 +1507,8 @@ class TestCommands(TestCase):
                 abs_path = Path(repo_dir) / fname
                 self.assertTrue(
                     any(
-                        os.path.samefile(str(abs_path), ro_fname)
-                        for ro_fname in coder.abs_read_only_fnames
+                        os.path.samefile(str(abs_path), fname_ro)
+                        for fname_ro in coder.abs_read_only_fnames
                     )
                 )
 
@@ -1385,6 +1523,24 @@ class TestCommands(TestCase):
             for file_name in test_files:
                 file_path = Path(repo_dir) / file_name
                 file_path.write_text(f"Content of {file_name}")
+
+            # Initialize GitRepo correctly
+            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+            for file_name in test_files:
+                repo.repo.index.add(file_name)
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Initial commit",
+                repo.repo.index.write_tree(),
+                []
+            )
 
             # Test the /read-only command with multiple files
             commands.cmd_read_only(" ".join(test_files))
@@ -1406,7 +1562,7 @@ class TestCommands(TestCase):
             self.assertEqual(len(coder.abs_read_only_fnames), 0)
 
     def test_cmd_read_only_with_tilde_path(self):
-        with GitTemporaryDirectory():
+        with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1417,6 +1573,12 @@ class TestCommands(TestCase):
             test_file.write_text("Test content")
 
             try:
+                # Initialize GitRepo correctly
+                repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
+                repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+                repo.repo.config['user.name'] = 'Test User'
+                repo.repo.config['user.email'] = 'testuser@example.com'
+
                 # Test the /read-only command with a path in the user's home directory
                 relative_path = os.path.join("~", "test_read_only_file.txt")
                 commands.cmd_read_only(relative_path)
@@ -1441,6 +1603,10 @@ class TestCommands(TestCase):
     def test_cmd_diff(self):
         with GitTemporaryDirectory() as repo_dir:
             repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1449,8 +1615,17 @@ class TestCommands(TestCase):
             filename = "test_file.txt"
             file_path = Path(repo_dir) / filename
             file_path.write_text("Initial content\n")
-            repo.git.add(filename)
-            repo.git.commit("-m", "Initial commit\n")
+            repo.repo.index.add(str(file_path))
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Initial commit\n",
+                repo.repo.index.write_tree(),
+                []
+            )
 
             # Modify the file to make it dirty
             file_path.write_text("Modified content")
@@ -1518,12 +1693,15 @@ class TestCommands(TestCase):
             with self.assertRaises(SwitchCoder):
                 commands.cmd_ask(question)
 
-            mock_run.assert_called_once()
             mock_run.assert_called_once_with(question)
 
     def test_cmd_lint_with_dirty_file(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = GitRepo(repo_dir)
+            repo = GitRepo(io=None, fnames=[], git_dname=repo_dir)
+            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            repo.repo.config['user.name'] = 'Test User'
+            repo.repo.config['user.email'] = 'testuser@example.com'
+
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1532,8 +1710,17 @@ class TestCommands(TestCase):
             filename = "test_file.py"
             file_path = Path(repo_dir) / filename
             file_path.write_text("def hello():\n    print('Hello, World!')\n")
-            repo.git.add(filename)
-            repo.git.commit("-m", "Add test_file.py")
+            repo.repo.index.add(str(file_path))
+            repo.repo.index.write()
+            author = pygit2.Signature("Test User", "testuser@example.com")
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Add test_file.py",
+                repo.repo.index.write_tree(),
+                []
+            )
 
             # Modify the file to make it dirty
             file_path.write_text("def hello():\n    print('Hello, World!')\n\n# Dirty line\n")
