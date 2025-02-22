@@ -173,7 +173,7 @@ class TestRepo(unittest.TestCase):
             tree = repo.index.write_tree()
             # Get the parent commit
             parent = repo.head.target
-            
+
             repo.create_commit(
                 "HEAD",
                 author,
@@ -255,48 +255,10 @@ class TestRepo(unittest.TestCase):
             return
 
         with GitTemporaryDirectory():
-            # new repo
-            raw_repo = pygit2.init_repository(".", initial_head='refs/heads/main')
-            
-            # Create initial commit
-            fname = Path("file.txt")
-            fname.touch()
-            raw_repo.index.add(str(fname))
-            raw_repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
-            tree = raw_repo.index.write_tree()
-            # Create initial commit with no parents
-            # Get the parent commit
-            try:
-                parent = raw_repo.head.target
-            except KeyError:
-                parent = None
-            
-            if parent:
-                raw_repo.create_commit(
-                    "HEAD",
-                    author,
-                    author,
-                    "second commit",
-                    tree,
-                    [parent]
-                )
-            else:
-                raw_repo.create_commit(
-                    "HEAD",
-                    author,
-                    author,
-                    "initial commit",
-                    tree,
-                    []
-                )
-            
-            # Set HEAD to main branch (which was already created)
-            raw_repo.set_head("refs/heads/main")
-            config = raw_repo.config
-            config["user.name"] = "Test User"
+            # Initialize repository with 'main' as the initial head
+            raw_repo = pygit2.init_repository(".", initial_head='main')
 
-            # add a file and commit it
+            # Create initial commit on 'main' branch
             fname = Path("file.txt")
             fname.touch()
             raw_repo.index.add(str(fname))
@@ -304,7 +266,7 @@ class TestRepo(unittest.TestCase):
             author = pygit2.Signature("Test User", "test@example.com")
             tree = raw_repo.index.write_tree()
             raw_repo.create_commit(
-                "HEAD",
+                "refs/heads/main",
                 author,
                 author,
                 "initial commit",
@@ -312,28 +274,49 @@ class TestRepo(unittest.TestCase):
                 []
             )
 
+            # Set HEAD to main branch
+            raw_repo.set_head("refs/heads/main")
+            config = raw_repo.config
+            config["user.name"] = "Test User"
+
+            # Add a file and commit it
+            fname = Path("file.txt")
+            fname.touch()
+            raw_repo.index.add(str(fname))
+            raw_repo.index.write()
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = raw_repo.index.write_tree()
+            raw_repo.create_commit(
+                "refs/heads/main",
+                author,
+                author,
+                "initial commit",
+                tree,
+                [raw_repo.head.target]
+            )
+
             io = InputOutput()
             git_repo = GitRepo(io, None, None)
 
-            # commit a change
+            # Commit a change with aider_edits=True
             fname.write_text("new content")
             git_repo.commit(fnames=[str(fname)], aider_edits=True)
 
-            # check the committer name
+            # Check the committer name
             commit = raw_repo[raw_repo.head.target]
             self.assertEqual(commit.author.name, "Test User (aider)")
             self.assertEqual(commit.committer.name, "Test User (aider)")
 
-            # commit a change without aider_edits
+            # Commit a change with aider_edits=False
             fname.write_text("new content again!")
             git_repo.commit(fnames=[str(fname)], aider_edits=False)
 
-            # check the committer name
+            # Check the committer name
             commit = raw_repo[raw_repo.head.target]
             self.assertEqual(commit.author.name, "Test User")
             self.assertEqual(commit.committer.name, "Test User (aider)")
 
-            # check that the original committer name is restored
+            # Check that the original committer name is restored
             original_committer_name = os.environ.get("GIT_COMMITTER_NAME")
             self.assertIsNone(original_committer_name)
             original_author_name = os.environ.get("GIT_AUTHOR_NAME")
