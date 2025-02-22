@@ -54,9 +54,9 @@ class GitRepo:
 
     def __init__(
         self,
-        io,
-        fnames,
-        git_dname,
+        io=None,
+        fnames=None,
+        git_dname=None,
         aider_ignore_file=None,
         models=None,
         attribute_author=True,
@@ -121,6 +121,18 @@ class GitRepo:
         self.git = self.Git(self.repo)
         self.index = self.repo.index
 
+    @property
+    def git(self):
+        """A simple Git interface to mimic GitPython's git attribute using pygit2."""
+        if not hasattr(self, '_git'):
+            self._git = self.Git(self.repo)
+        return self._git
+
+    @property
+    def index(self):
+        """Access to the repository index"""
+        return self.repo.index
+
     class Git:
         """A simple Git interface to mimic GitPython's git attribute using pygit2."""
 
@@ -135,8 +147,13 @@ class GitRepo:
             except Exception as e:
                 raise AttributeError(f"Failed to add file '{filename}': {e}")
 
-        def commit(self, message, author="Author <author@example.com>", committer="Committer <committer@example.com>"):
+        def commit(self, message, author=None, committer=None):
             try:
+                if author is None:
+                    author = f"{self.repo.config['user.name']} <{self.repo.config['user.email']}>"
+                if committer is None:
+                    committer = author
+
                 author_signature = pygit2.Signature(*author.split(" <"))
                 committer_signature = pygit2.Signature(*committer.split(" <"))
                 tree = self.repo.index.write_tree()
@@ -160,6 +177,13 @@ class GitRepo:
                 return diff.patch
             except Exception as e:
                 raise AttributeError(f"Failed to generate diff: {e}")
+
+        def ls_files(self):
+            """List all tracked files in the repository"""
+            try:
+                return [entry.path for entry in self.repo.index]
+            except Exception as e:
+                raise AttributeError(f"Failed to list files: {e}")
 
     def commit(self, fnames=None, context=None, message=None, aider_edits=False):
         if not fnames and not self.repo.status():
