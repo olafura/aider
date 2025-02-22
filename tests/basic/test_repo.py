@@ -89,7 +89,16 @@ class TestRepo(unittest.TestCase):
             fname.touch()
             repo.index.add(str(fname))
             repo.index.write()
-            repo.git.commit("-m", "foo")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = repo.index.write_tree()
+            repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "foo",
+                tree,
+                []
+            )
 
             fname2 = Path("bar.txt")
             fname2.touch()
@@ -122,7 +131,16 @@ class TestRepo(unittest.TestCase):
             fname.write_text("one\n")
             repo.index.add(str(fname))
             repo.index.write()
-            repo.git.commit("-m", "initial")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = repo.index.write_tree()
+            repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "initial",
+                tree,
+                []
+            )
 
             fname.write_text("two\n")
             repo.index.add(str(fname))
@@ -209,7 +227,8 @@ class TestRepo(unittest.TestCase):
             # add a file and commit it
             fname = Path("file.txt")
             fname.touch()
-            raw_repo.git.add(str(fname))
+            raw_repo.index.add(str(fname))
+            raw_repo.index.write()
             raw_repo.git.commit("-m", "initial commit")
 
             io = InputOutput()
@@ -245,8 +264,9 @@ class TestRepo(unittest.TestCase):
 
         # Initialize a git repository in the temporary directory and set user name and email
         repo = pygit2.init_repository(tempdir)
-        repo.config_writer().set_value("user", "name", "Test User").release()
-        repo.config_writer().set_value("user", "email", "testuser@example.com").release()
+        config = repo.config
+        config["user.name"] = "Test User"
+        config["user.email"] = "testuser@example.com"
 
         # Create three empty files and add them to the git repository
         filenames = ["README.md", "subdir/fänny.md", "systemüber/blick.md", 'file"with"quotes.txt']
@@ -283,7 +303,8 @@ class TestRepo(unittest.TestCase):
             # add it, but no commits at all in the raw_repo yet
             fname = Path("new.txt")
             fname.touch()
-            raw_repo.git.add(str(fname))
+            raw_repo.index.add(str(fname))
+            raw_repo.index.write()
 
             git_repo = GitRepo(InputOutput(), None, None)
 
@@ -314,7 +335,8 @@ class TestRepo(unittest.TestCase):
             # add it, but no commits at all in the raw_repo yet
             fname = Path("new.txt")
             fname.touch()
-            raw_repo.git.add(str(fname))
+            raw_repo.index.add(str(fname))
+            raw_repo.index.write()
 
             aiderignore = Path(".aiderignore")
             git_repo = GitRepo(InputOutput(), None, None, str(aiderignore))
@@ -365,7 +387,8 @@ class TestRepo(unittest.TestCase):
             fname = Path("subdir/new.txt")
             fname.parent.mkdir()
             fname.touch()
-            raw_repo.git.add(str(fname))
+            raw_repo.index.add(str(fname))
+            raw_repo.index.write()
 
             os.chdir(fname.parent)
 
@@ -396,7 +419,10 @@ class TestRepo(unittest.TestCase):
             another_subdir_file.parent.mkdir()
             another_subdir_file.touch()
 
-            raw_repo.git.add(str(root_file), str(subdir_file), str(another_subdir_file))
+            raw_repo.index.add(str(root_file))
+            raw_repo.index.add(str(subdir_file)) 
+            raw_repo.index.add(str(another_subdir_file))
+            raw_repo.index.write()
             raw_repo.git.commit("-m", "Initial commit")
 
             # Change to the subdir
