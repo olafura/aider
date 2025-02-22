@@ -63,7 +63,10 @@ class TestRepoMap(unittest.TestCase):
                 f.write(file3_content)
 
             # Add files to git
-            repo.index.add_all()
+            repo.index.add("file1.py")
+            repo.index.add("file2.py")
+            repo.index.add("file3.py")
+            repo.index.write()
             author = pygit2.Signature("Test User", "test@example.com")
             repo.create_commit(
                 "HEAD",
@@ -113,7 +116,7 @@ class TestRepoMap(unittest.TestCase):
 
     def test_repo_map_refresh_auto(self):
         with GitTemporaryDirectory() as temp_dir:
-            repo = git.Repo(temp_dir)
+            repo = pygit2.init_repository(temp_dir)
 
             # Create two source files with one function each
             file1_content = "def function1():\n    return 'Hello from file1'\n"
@@ -125,8 +128,18 @@ class TestRepoMap(unittest.TestCase):
                 f.write(file2_content)
 
             # Add files to git
-            repo.index.add(["file1.py", "file2.py"])
-            repo.index.commit("Initial commit")
+            repo.index.add("file1.py")
+            repo.index.add("file2.py")
+            repo.index.write()
+            author = pygit2.Signature("Test User", "test@example.com")
+            repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "Initial commit",
+                repo.index.write_tree(),
+                []
+            )
 
             # Initialize RepoMap with refresh="auto"
             io = InputOutput()
