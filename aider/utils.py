@@ -71,13 +71,14 @@ class GitTemporaryDirectory(ChdirTemporaryDirectory):
 
 
 def make_repo(path=None):
-    import git
+    import pygit2
 
     if not path:
         path = "."
-    repo = git.Repo.init(path)
-    repo.config_writer().set_value("user", "name", "Test User").release()
-    repo.config_writer().set_value("user", "email", "testuser@example.com").release()
+    repo = pygit2.init_repository(path)
+    config = repo.config
+    config["user.name"] = "Test User"
+    config["user.email"] = "testuser@example.com"
 
     return repo
 

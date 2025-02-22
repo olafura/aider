@@ -109,7 +109,7 @@ class GitRepo:
             self.aider_ignore_file = Path(aider_ignore_file)
 
     def commit(self, fnames=None, context=None, message=None, aider_edits=False):
-        if not fnames and not self.repo.is_dirty():
+        if not fnames and not self.repo.status():
             return
 
         diffs = self.get_diffs(fnames)
@@ -130,22 +130,8 @@ class GitRepo:
             commit_message = "(no commit message provided)"
 
         full_commit_message = commit_message
-        # if context:
-        #    full_commit_message += "\n\n# Aider chat conversation:\n\n" + context
 
-        cmd = ["-m", full_commit_message, "--no-verify"]
-        if fnames:
-            fnames = [str(self.abs_root_path(fn)) for fn in fnames]
-            for fname in fnames:
-                try:
-                    self.repo.git.add(fname)
-                except ANY_GIT_ERROR as err:
-                    self.io.tool_error(f"Unable to add {fname}: {err}")
-            cmd += ["--"] + fnames
-        else:
-            cmd += ["-a"]
-
-        original_user_name = self.repo.config_reader().get_value("user", "name")
+        original_user_name = self.repo.config["user.name"]
         original_committer_name_env = os.environ.get("GIT_COMMITTER_NAME")
         committer_name = f"{original_user_name} (aider)"
 
@@ -157,15 +143,38 @@ class GitRepo:
             os.environ["GIT_AUTHOR_NAME"] = committer_name
 
         try:
-            self.repo.git.commit(cmd)
-            commit_hash = self.get_head_commit_sha(short=True)
+            # Stage files
+            if fnames:
+                for fname in fnames:
+                    try:
+                        rel_path = str(Path(fname).relative_to(self.root))
+                        self.repo.index.add(rel_path)
+                    except (ValueError, pygit2.GitError) as err:
+                        self.io.tool_error(f"Unable to add {fname}: {err}")
+            else:
+                self.repo.index.add_all()
+
+            # Create commit
+            tree = self.repo.index.write_tree()
+            author = pygit2.Signature(committer_name, "testuser@example.com")
+            committer = author
+            parents = [self.repo.head.target] if self.repo.head_is_unborn else [self.repo.head.target]
+            commit_id = self.repo.create_commit(
+                "HEAD",
+                author,
+                committer,
+                full_commit_message,
+                tree,
+                parents
+            )
+
+            commit_hash = commit_id[:7]
             self.io.tool_output(f"Commit {commit_hash} {commit_message}", bold=True)
             return commit_hash, commit_message
-        except ANY_GIT_ERROR as err:
+        except pygit2.GitError as err:
             self.io.tool_error(f"Unable to commit: {err}")
         finally:
             # Restore the env
-
             if self.attribute_committer:
                 if original_committer_name_env is not None:
                     os.environ["GIT_COMMITTER_NAME"] = original_committer_name_env
