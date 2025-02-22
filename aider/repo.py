@@ -50,7 +50,7 @@ class GitRepo:
             path = "."
         path = Path(path).resolve()
         repo = pygit2.init_repository(str(path))
-        return cls(io=None, fnames=[], git_dname=str(path))
+        return cls(git_dname=str(path))
 
     def __init__(
         self,
@@ -118,8 +118,7 @@ class GitRepo:
             self.aider_ignore_file = Path(aider_ignore_file)
 
         # Initialize Git interface
-        self.git = self.Git(self.repo)
-        self.index = self.repo.index
+        self._git = self.Git(self.repo)
 
     @property
     def git(self):
