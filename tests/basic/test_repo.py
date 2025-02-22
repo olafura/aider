@@ -23,6 +23,7 @@ class MockSoundDevice:
 @patch('aider.voice.sd', MockSoundDevice())
 @patch('aider.voice.sf', MagicMock())
 class TestVoice(unittest.TestCase):
+    pass
 
 
 class TestRepo(unittest.TestCase):
