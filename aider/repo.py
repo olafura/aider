@@ -117,6 +117,50 @@ class GitRepo:
         if aider_ignore_file:
             self.aider_ignore_file = Path(aider_ignore_file)
 
+        # Initialize Git interface
+        self.git = self.Git(self.repo)
+        self.index = self.repo.index
+
+    class Git:
+        """A simple Git interface to mimic GitPython's git attribute using pygit2."""
+
+        def __init__(self, repo):
+            self.repo = repo
+
+        def add(self, filename):
+            try:
+                rel_path = os.path.relpath(filename, self.repo.workdir)
+                self.repo.index.add(rel_path)
+                self.repo.index.write()
+            except Exception as e:
+                raise AttributeError(f"Failed to add file '{filename}': {e}")
+
+        def commit(self, message, author="Author <author@example.com>", committer="Committer <committer@example.com>"):
+            try:
+                author_signature = pygit2.Signature(*author.split(" <"))
+                committer_signature = pygit2.Signature(*committer.split(" <"))
+                tree = self.repo.index.write_tree()
+                parents = [self.repo.head.target] if not self.repo.head_is_unborn else []
+                self.repo.create_commit(
+                    'HEAD',
+                    author_signature,
+                    committer_signature,
+                    message,
+                    tree,
+                    parents
+                )
+            except Exception as e:
+                raise AttributeError(f"Failed to commit: {e}")
+
+        def diff(self, a="HEAD", b=None):
+            try:
+                if b is None:
+                    b = self.repo.head.target
+                diff = self.repo.diff(a, b)
+                return diff.patch
+            except Exception as e:
+                raise AttributeError(f"Failed to generate diff: {e}")
+
     def commit(self, fnames=None, context=None, message=None, aider_edits=False):
         if not fnames and not self.repo.status():
             return
@@ -163,21 +207,11 @@ class GitRepo:
             else:
                 self.repo.index.add_all()
 
-            # Create commit
-            tree = self.repo.index.write_tree()
-            author = pygit2.Signature(committer_name, "testuser@example.com")
-            committer = author
-            parents = [self.repo.head.target] if self.repo.head_is_unborn else [self.repo.head.target]
-            commit_id = self.repo.create_commit(
-                "HEAD",
-                author,
-                committer,
-                full_commit_message,
-                tree,
-                parents
-            )
+            # Create commit using the Git interface
+            git_interface = self.git
+            git_interface.commit(full_commit_message)
 
-            commit_hash = commit_id[:7]
+            commit_hash = git_interface.repo.revparse_single('HEAD').hex[:7]
             self.io.tool_output(f"Commit {commit_hash} {commit_message}", bold=True)
             return commit_hash, commit_message
         except pygit2.GitError as err:
@@ -261,14 +295,14 @@ class GitRepo:
         try:
             if current_branch_has_commits:
                 args = ["HEAD", "--"] + list(fnames)
-                diffs += self.repo.git.diff(*args)
+                diffs += self.repo.diff(*args).patch
                 return diffs
 
             wd_args = ["--"] + list(fnames)
-            index_args = ["--cached"] + wd_args
-
-            diffs += self.repo.git.diff(*index_args)
-            diffs += self.repo.git.diff(*wd_args)
+            index_diffs = self.repo.diff("HEAD", None, paths=fnames).patch
+            working_diffs = self.repo.diff(None, paths=fnames).patch
+            diffs += index_diffs
+            diffs += working_diffs
 
             return diffs
         except ANY_GIT_ERROR as err:
@@ -340,7 +374,11 @@ class GitRepo:
         if res:
             return res
 
-        path = str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))))
+        try:
+            relative = Path(self.root).relative_to(Path(self.repo.workdir))
+            path = str(PurePosixPath(relative) / PurePosixPath(path))
+        except ValueError:
+            path = str(Path(self.root) / path)
         self.normalized_path[orig_path] = path
         return path
 
@@ -458,8 +496,8 @@ class GitRepo:
         if not commit:
             return
         if short:
-            return commit.hexsha[:7]
-        return commit.hexsha
+            return commit.hex[:7]
+        return commit.hex
 
     def get_head_commit_message(self, default=None):
         commit = self.get_head_commit()
