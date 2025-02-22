@@ -256,7 +256,7 @@ class TestRepo(unittest.TestCase):
 
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = pygit2.init_repository(".")
+            raw_repo = pygit2.init_repository(".", initial_head='refs/heads/main')
             
             # Create initial commit
             fname = Path("file.txt")
@@ -267,16 +267,29 @@ class TestRepo(unittest.TestCase):
             tree = raw_repo.index.write_tree()
             # Create initial commit with no parents
             # Get the parent commit
-            parent = raw_repo.head.target
+            try:
+                parent = raw_repo.head.target
+            except KeyError:
+                parent = None
             
-            raw_repo.create_commit(
-                "HEAD",
-                author,
-                author,
-                "second commit",
-                tree,
-                [parent]
-            )
+            if parent:
+                raw_repo.create_commit(
+                    "HEAD",
+                    author,
+                    author,
+                    "second commit",
+                    tree,
+                    [parent]
+                )
+            else:
+                raw_repo.create_commit(
+                    "HEAD",
+                    author,
+                    author,
+                    "initial commit",
+                    tree,
+                    []
+                )
             
             # Set HEAD to main branch (which was already created)
             raw_repo.set_head("refs/heads/main")
