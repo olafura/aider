@@ -54,45 +54,45 @@ def test_voice_init_invalid_format():
 
 def test_callback_processing():
     voice = Voice()
-        voice.q = queue.Queue()
+    voice.q = queue.Queue()
 
-        # Test with silence (low amplitude)
-        test_data = np.zeros((1000, 1))
-        voice.callback(test_data, None, None, None)
-        assert voice.pct == 0.5  # When range is too small (<=0.001), pct is set to 0.5
+    # Test with silence (low amplitude)
+    test_data = np.zeros((1000, 1))
+    voice.callback(test_data, None, None, None)
+    assert voice.pct == 0.5  # When range is too small (<=0.001), pct is set to 0.5
 
-        # Test with loud signal (high amplitude)
-        test_data = np.ones((1000, 1))
-        voice.callback(test_data, None, None, None)
-        assert voice.pct > 0.9
+    # Test with loud signal (high amplitude)
+    test_data = np.ones((1000, 1))
+    voice.callback(test_data, None, None, None)
+    assert voice.pct > 0.9
 
-        # Verify data is queued
-        assert not voice.q.empty()
+    # Verify data is queued
+    assert not voice.q.empty()
 
 
 def test_get_prompt():
     voice = Voice()
-        voice.start_time = os.times().elapsed
-        voice.pct = 0.5  # 50% volume level
+    voice.start_time = os.times().elapsed
+    voice.pct = 0.5  # 50% volume level
 
-        prompt = voice.get_prompt()
-        assert "Recording" in prompt
-        assert "sec" in prompt
-        assert "█" in prompt  # Should contain some filled blocks
-        assert "░" in prompt  # Should contain some empty blocks
+    prompt = voice.get_prompt()
+    assert "Recording" in prompt
+    assert "sec" in prompt
+    assert "█" in prompt  # Should contain some filled blocks
+    assert "░" in prompt  # Should contain some empty blocks
 
 
 def test_record_and_transcribe_keyboard_interrupt():
     voice = Voice()
-        with patch.object(voice, "raw_record_and_transcribe", side_effect=KeyboardInterrupt()):
-            result = voice.record_and_transcribe()
-            assert result is None
+    with patch.object(voice, "raw_record_and_transcribe", side_effect=KeyboardInterrupt()):
+        result = voice.record_and_transcribe()
+        assert result is None
 
 
 def test_record_and_transcribe_device_error():
     voice = Voice()
-        with patch.object(
-            voice, "raw_record_and_transcribe", side_effect=SoundDeviceError("Test error")
-        ):
-            result = voice.record_and_transcribe()
-            assert result is None
+    with patch.object(
+        voice, "raw_record_and_transcribe", side_effect=SoundDeviceError("Test error")
+    ):
+        result = voice.record_and_transcribe()
+        assert result is None
