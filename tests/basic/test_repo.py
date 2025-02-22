@@ -274,9 +274,8 @@ class TestRepo(unittest.TestCase):
                 []
             )
             
-            # Create main branch reference
-            ref = raw_repo.references.create("refs/heads/main", raw_repo.head.target)
-            raw_repo.set_head(ref.name)
+            # Set HEAD to main branch (which was already created)
+            raw_repo.set_head("refs/heads/main")
             config = raw_repo.config
             config["user.name"] = "Test User"
 
