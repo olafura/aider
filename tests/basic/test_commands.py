@@ -444,7 +444,7 @@ class TestCommands(TestCase):
             fname = "test.txt"
             with open(fname, "w") as f:
                 f.write("test")
-            repo = GitRepo()
+            repo = GitRepo.init()
             repo.git.add(fname)
             repo.git.commit("-m", "initial")
 
@@ -584,7 +584,7 @@ class TestCommands(TestCase):
             fname = dname / "filename.txt"
             fname.touch()
 
-            repo = GitRepo()
+            repo = GitRepo.init()
             repo.git.add(str(fname))
             repo.git.commit("-m", "init")
 
@@ -625,7 +625,7 @@ class TestCommands(TestCase):
 
     def test_cmd_add_existing_with_dirty_repo(self):
         with GitTemporaryDirectory():
-            repo = GitRepo()
+            repo = GitRepo.init()
 
             files = ["one.txt", "two.txt"]
             for fname in files:
@@ -1038,7 +1038,7 @@ class TestCommands(TestCase):
                 )
             )
 
-            repo = GitRepo()
+            repo = GitRepo.init()
             repo.git.add(str(test_file))
             repo.git.commit("-m", "initial")
 
@@ -1075,7 +1075,7 @@ class TestCommands(TestCase):
 
     def test_cmd_add_drop_untracked_files(self):
         with GitTemporaryDirectory():
-            repo = GitRepo()
+            repo = GitRepo.init()
 
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
@@ -1101,7 +1101,7 @@ class TestCommands(TestCase):
 
     def test_cmd_undo_with_dirty_files_not_in_last_commit(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = GitRepo(repo_dir)
+            repo = GitRepo.init(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1234,7 +1234,7 @@ class TestCommands(TestCase):
 
     def test_cmd_add_aiderignored_file(self):
         with GitTemporaryDirectory():
-            repo = GitRepo()
+            repo = GitRepo.init()
 
             fname1 = "ignoreme1.txt"
             fname2 = "ignoreme2.txt"

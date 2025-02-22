@@ -43,6 +43,15 @@ class GitRepo:
     ignore_file_cache = {}
     git_repo_error = None
 
+    @classmethod
+    def init(cls, path=None):
+        """Initialize a new Git repository"""
+        if path is None:
+            path = "."
+        path = Path(path).resolve()
+        repo = pygit2.init_repository(str(path))
+        return cls(io=None, fnames=[], git_dname=str(path))
+
     def __init__(
         self,
         io,
