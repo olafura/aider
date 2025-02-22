@@ -84,7 +84,7 @@ class TestRepo(unittest.TestCase):
 
     def test_diffs_detached_head(self):
         with GitTemporaryDirectory():
-            repo = git.Repo()
+            repo = pygit2.init_repository(".")
             fname = Path("foo.txt")
             fname.touch()
             repo.git.add(str(fname))
@@ -114,7 +114,7 @@ class TestRepo(unittest.TestCase):
 
     def test_diffs_between_commits(self):
         with GitTemporaryDirectory():
-            repo = git.Repo()
+            repo = pygit2.init_repository(".")
             fname = Path("foo.txt")
 
             fname.write_text("one\n")
@@ -198,7 +198,7 @@ class TestRepo(unittest.TestCase):
 
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = git.Repo()
+            raw_repo = pygit2.init_repository(".")
             raw_repo.config_writer().set_value("user", "name", "Test User").release()
 
             # add a file and commit it
@@ -239,7 +239,7 @@ class TestRepo(unittest.TestCase):
         tempdir = Path(tempfile.mkdtemp())
 
         # Initialize a git repository in the temporary directory and set user name and email
-        repo = git.Repo.init(tempdir)
+        repo = pygit2.init_repository(tempdir)
         repo.config_writer().set_value("user", "name", "Test User").release()
         repo.config_writer().set_value("user", "email", "testuser@example.com").release()
 
@@ -273,7 +273,7 @@ class TestRepo(unittest.TestCase):
     def test_get_tracked_files_with_new_staged_file(self):
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = git.Repo()
+            raw_repo = pygit2.init_repository(".")
 
             # add it, but no commits at all in the raw_repo yet
             fname = Path("new.txt")
@@ -304,7 +304,7 @@ class TestRepo(unittest.TestCase):
     def test_get_tracked_files_with_aiderignore(self):
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = git.Repo()
+            raw_repo = pygit2.init_repository(".")
 
             # add it, but no commits at all in the raw_repo yet
             fname = Path("new.txt")
@@ -354,7 +354,7 @@ class TestRepo(unittest.TestCase):
     def test_get_tracked_files_from_subdir(self):
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = git.Repo()
+            raw_repo = pygit2.init_repository(".")
 
             # add it, but no commits at all in the raw_repo yet
             fname = Path("subdir/new.txt")
@@ -378,7 +378,7 @@ class TestRepo(unittest.TestCase):
     def test_subtree_only(self):
         with GitTemporaryDirectory():
             # Create a new repo
-            raw_repo = git.Repo()
+            raw_repo = pygit2.init_repository(".")
 
             # Create files in different directories
             root_file = Path("root.txt")
@@ -417,7 +417,7 @@ class TestRepo(unittest.TestCase):
 
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = git.Repo()
+            raw_repo = pygit2.init_repository(".")
 
             # add it, but no commits at all in the raw_repo yet
             fname = Path("file.txt")
