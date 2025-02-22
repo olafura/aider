@@ -119,8 +119,18 @@ class TestRepo(unittest.TestCase):
 
             fname3 = Path("baz.txt")
             fname3.touch()
-            repo.git.add(str(fname3))
-            repo.git.commit("-m", "baz")
+            repo.index.add(str(fname3))
+            repo.index.write()
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = repo.index.write_tree()
+            repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "baz",
+                tree,
+                [repo.head.target]
+            )
 
             repo.git.checkout("HEAD^")
 
