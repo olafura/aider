@@ -87,7 +87,8 @@ class TestRepo(unittest.TestCase):
             repo = pygit2.init_repository(".")
             fname = Path("foo.txt")
             fname.touch()
-            repo.git.add(str(fname))
+            repo.index.add(str(fname))
+            repo.index.write()
             repo.git.commit("-m", "foo")
 
             fname2 = Path("bar.txt")
@@ -103,7 +104,8 @@ class TestRepo(unittest.TestCase):
             repo.git.checkout("HEAD^")
 
             fname.write_text("index\n")
-            repo.git.add(str(fname))
+            repo.index.add(str(fname))
+            repo.index.write()
 
             fname2.write_text("workingdir\n")
 
@@ -118,11 +120,13 @@ class TestRepo(unittest.TestCase):
             fname = Path("foo.txt")
 
             fname.write_text("one\n")
-            repo.git.add(str(fname))
+            repo.index.add(str(fname))
+            repo.index.write()
             repo.git.commit("-m", "initial")
 
             fname.write_text("two\n")
-            repo.git.add(str(fname))
+            repo.index.add(str(fname))
+            repo.index.write()
             repo.git.commit("-m", "second")
 
             git_repo = GitRepo(InputOutput(), None, ".")
@@ -199,7 +203,8 @@ class TestRepo(unittest.TestCase):
         with GitTemporaryDirectory():
             # new repo
             raw_repo = pygit2.init_repository(".")
-            raw_repo.config_writer().set_value("user", "name", "Test User").release()
+            config = raw_repo.config
+            config["user.name"] = "Test User"
 
             # add a file and commit it
             fname = Path("file.txt")
