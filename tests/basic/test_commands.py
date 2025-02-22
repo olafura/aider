@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import TestCase, mock
 
 import git
+import pygit2
 import pyperclip
 
 from aider.coders import Coder
