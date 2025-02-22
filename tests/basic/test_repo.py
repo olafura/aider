@@ -40,14 +40,16 @@ class TestRepo(unittest.TestCase):
 
     def test_diffs_nonempty_repo(self):
         with GitTemporaryDirectory():
-            repo = git.Repo()
+            repo = pygit2.init_repository(".")
             fname = Path("foo.txt")
-            fname.touch()
-            repo.git.add(str(fname))
+            fname.write_text("initial\n")
+            repo.index.add(str(fname))
+            repo.index.write()
 
             fname2 = Path("bar.txt")
-            fname2.touch()
-            repo.git.add(str(fname2))
+            fname2.write_text("initial\n")
+            repo.index.add(str(fname2))
+            repo.index.write()
 
             author = pygit2.Signature("Test User", "test@example.com")
             repo.create_commit(
@@ -60,7 +62,8 @@ class TestRepo(unittest.TestCase):
             )
 
             fname.write_text("index\n")
-            repo.git.add(str(fname))
+            repo.index.add(str(fname))
+            repo.index.write()
 
             fname2.write_text("workingdir\n")
 
