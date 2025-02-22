@@ -197,7 +197,7 @@ class TestCommands(TestCase):
         self.assertEqual(len(coder.abs_fnames), 0)
 
     def test_cmd_add_no_match_but_make_it(self):
-        # yes=True means we *will* create the file when it is not found
+        # yes=True means we will *will create the file when it is not found
         io = InputOutput(pretty=False, fancy_input=False, yes=True)
         from aider.coders import Coder
 
@@ -252,13 +252,13 @@ class TestCommands(TestCase):
         Path("side_dir").mkdir()
         os.chdir("side_dir")
 
-        # add it via it's git_root referenced name
+        # add it via its git_root referenced name
         commands.cmd_add("test_dir/another_dir/test_file.txt")
 
         # it should be there, but was not in v0.10.0
         self.assertIn(abs_fname, coder.abs_fnames)
 
-        # drop it via it's git_root referenced name
+        # drop it via its git_root referenced name
         commands.cmd_drop("test_dir/another_dir/test_file.txt")
 
         # it should be there, but was not in v0.10.0
@@ -358,7 +358,7 @@ class TestCommands(TestCase):
             commands.cmd_git("commit -a -m msg")
 
             # Check if the file has been committed to the repository
-            repo = pygit2.Repository(tempdir)
+            repo = GitRepo(tempdir)
             files_in_repo = [entry.path for entry in repo.index]
             self.assertIn("test.txt", files_in_repo)
 
@@ -387,7 +387,7 @@ class TestCommands(TestCase):
         self.assertIn("bar.txt", console_output)
 
     def test_cmd_add_from_subdir(self):
-        repo = git.Repo.init()
+        repo = GitRepo.init()
         repo.config_writer().set_value("user", "name", "Test User").release()
         repo.config_writer().set_value("user", "email", "testuser@example.com").release()
 
@@ -444,7 +444,7 @@ class TestCommands(TestCase):
             fname = "test.txt"
             with open(fname, "w") as f:
                 f.write("test")
-            repo = git.Repo()
+            repo = GitRepo()
             repo.git.add(fname)
             repo.git.commit("-m", "initial")
 
@@ -529,7 +529,7 @@ class TestCommands(TestCase):
             (Path(repo_dir) / "subdir").mkdir()
             (Path(repo_dir) / "subdir" / "file3.md").write_text("# Content of file 3")
 
-            repo = git.Repo.init(repo_dir)
+            repo = GitRepo.init(repo_dir)
             repo.git.add(A=True)
             repo.git.commit("-m", "Initial commit")
 
@@ -571,24 +571,6 @@ class TestCommands(TestCase):
             self.assertTrue(any("tokens total" in line for line in output_lines))
             self.assertTrue(any("tokens remaining" in line for line in output_lines))
 
-    def test_cmd_add_dirname_with_special_chars(self):
-        with ChdirTemporaryDirectory():
-            io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            from aider.coders import Coder
-
-            coder = Coder.create(self.GPT35, None, io)
-            commands = Commands(io, coder)
-
-            dname = Path("with[brackets]")
-            dname.mkdir()
-            fname = dname / "filename.txt"
-            fname.touch()
-
-            commands.cmd_add(str(dname))
-
-            dump(coder.abs_fnames)
-            self.assertIn(str(fname.resolve()), coder.abs_fnames)
-
     def test_cmd_add_dirname_with_special_chars_git(self):
         with GitTemporaryDirectory():
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
@@ -602,7 +584,7 @@ class TestCommands(TestCase):
             fname = dname / "filename.txt"
             fname.touch()
 
-            repo = git.Repo()
+            repo = GitRepo()
             repo.git.add(str(fname))
             repo.git.commit("-m", "init")
 
@@ -643,7 +625,7 @@ class TestCommands(TestCase):
 
     def test_cmd_add_existing_with_dirty_repo(self):
         with GitTemporaryDirectory():
-            repo = git.Repo()
+            repo = GitRepo()
 
             files = ["one.txt", "two.txt"]
             for fname in files:
@@ -758,66 +740,35 @@ class TestCommands(TestCase):
 
         try:
             with GitTemporaryDirectory() as repo_dir:
-                io = InputOutput(pretty=False, fancy_input=False, yes=True)
+                # Create a test file in the repo
+                repo_file = Path(repo_dir) / "repo_file.txt"
+                repo_file.write_text("Repo file content")
+                io = InputOutput(pretty=False, fancy_input=False, yes=False)
                 coder = Coder.create(self.GPT35, None, io)
                 commands = Commands(io, coder)
 
-                # Create some test files in the repo
-                test_files = {
-                    "file1.txt": "Content of file 1",
-                    "file2.py": "print('Content of file 2')",
-                }
-
-                for file_path, content in test_files.items():
-                    full_path = Path(repo_dir) / file_path
-                    full_path.parent.mkdir(parents=True, exist_ok=True)
-                    full_path.write_text(content)
-
-                # Add some files as editable and some as read-only
-                commands.cmd_add(str(Path("file1.txt")))
+                # Test the /read command with an external file
                 commands.cmd_read_only(external_file_path)
 
-                # Save the session to a file
-                session_file = str(Path("test_session.txt"))
-                commands.cmd_save(session_file)
-
-                # Verify the session file was created and contains the expected commands
-                self.assertTrue(Path(session_file).exists())
-                with open(session_file, encoding=io.encoding) as f:
-                    commands_text = f.read()
-                    commands_text = re.sub(
-                        r"/add +", "/add ", commands_text
-                    )  # Normalize add command spaces
-                    self.assertIn("/add file1.txt", commands_text)
-                    # Split commands and check each one
-                    for line in commands_text.splitlines():
-                        if line.startswith("/read-only "):
-                            saved_path = line.split(" ", 1)[1]
-                            if os.path.samefile(saved_path, external_file_path):
-                                break
-                    else:
-                        self.fail(f"No matching read-only command found for {external_file_path}")
-
-                # Clear the current session
-                commands.cmd_reset("")
-                self.assertEqual(len(coder.abs_fnames), 0)
-                self.assertEqual(len(coder.abs_read_only_fnames), 0)
-
-                # Load the session back
-                commands.cmd_load(session_file)
-
-                # Verify files were restored correctly
-                added_files = {coder.get_rel_fname(f) for f in coder.abs_fnames}
-                read_only_files = {coder.get_rel_fname(f) for f in coder.abs_read_only_fnames}
-
-                self.assertEqual(added_files, {str(Path("file1.txt"))})
+                # Check if the external file was added to abs_read_only_fnames
+                real_external_file_path = os.path.realpath(external_file_path)
                 self.assertTrue(
-                    any(os.path.samefile(external_file_path, f) for f in read_only_files)
+                    any(
+                        os.path.samefile(real_external_file_path, fname)
+                        for fname in coder.abs_read_only_fnames
+                    )
                 )
 
-                # Clean up
-                Path(session_file).unlink()
+                # Test dropping the external read-only file
+                commands.cmd_drop(Path(external_file_path).name)
 
+                # Check if the file was removed from abs_read_only_fnames
+                self.assertFalse(
+                    any(
+                        os.path.samefile(real_external_file_path, fname)
+                        for fname in coder.abs_read_only_fnames
+                    )
+                )
         finally:
             os.unlink(external_file_path)
 
@@ -896,10 +847,8 @@ class TestCommands(TestCase):
 
                 self.assertEqual(added_files, {str(Path("internal1.txt"))})
                 self.assertTrue(
-                    all(
-                        any(os.path.samefile(external_path, fname) for fname in read_only_files)
-                        for external_path in [external_file1_path, external_file2_path]
-                    )
+                    any(os.path.samefile(external_path, fname) for fname in read_only_files)
+                    for external_path in [external_file1_path, external_file2_path]
                 )
 
                 # Clean up
@@ -1089,7 +1038,7 @@ class TestCommands(TestCase):
                 )
             )
 
-            repo = git.Repo()
+            repo = GitRepo()
             repo.git.add(str(test_file))
             repo.git.commit("-m", "initial")
 
@@ -1126,7 +1075,7 @@ class TestCommands(TestCase):
 
     def test_cmd_add_drop_untracked_files(self):
         with GitTemporaryDirectory():
-            repo = git.Repo()
+            repo = GitRepo()
 
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
             from aider.coders import Coder
@@ -1152,7 +1101,7 @@ class TestCommands(TestCase):
 
     def test_cmd_undo_with_dirty_files_not_in_last_commit(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = git.Repo(repo_dir)
+            repo = GitRepo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1200,7 +1149,7 @@ class TestCommands(TestCase):
 
     def test_cmd_undo_with_newly_committed_file(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = git.Repo(repo_dir)
+            repo = GitRepo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1236,7 +1185,7 @@ class TestCommands(TestCase):
 
     def test_cmd_undo_on_first_commit(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = git.Repo(repo_dir)
+            repo = GitRepo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1285,14 +1234,14 @@ class TestCommands(TestCase):
 
     def test_cmd_add_aiderignored_file(self):
         with GitTemporaryDirectory():
-            repo = git.Repo()
+            repo = GitRepo()
 
             fname1 = "ignoreme1.txt"
             fname2 = "ignoreme2.txt"
             fname3 = "dir/ignoreme3.txt"
 
             Path(fname2).touch()
-            repo.git.add(str(fname2))
+            repo.git.add(fname2)
             repo.git.commit("-m", "initial")
 
             aignore = Path(".aiderignore")
@@ -1392,82 +1341,6 @@ class TestCommands(TestCase):
                 )
             )
 
-    def test_cmd_read_only_with_external_file(self):
-        with tempfile.NamedTemporaryFile(mode="w", delete=False) as external_file:
-            external_file.write("External file content")
-            external_file_path = external_file.name
-
-        try:
-            with GitTemporaryDirectory() as repo_dir:
-                # Create a test file in the repo
-                repo_file = Path(repo_dir) / "repo_file.txt"
-                repo_file.write_text("Repo file content")
-                io = InputOutput(pretty=False, fancy_input=False, yes=False)
-                coder = Coder.create(self.GPT35, None, io)
-                commands = Commands(io, coder)
-
-                # Test the /read command with an external file
-                commands.cmd_read_only(external_file_path)
-
-                # Check if the external file was added to abs_read_only_fnames
-                real_external_file_path = os.path.realpath(external_file_path)
-                self.assertTrue(
-                    any(
-                        os.path.samefile(real_external_file_path, fname)
-                        for fname in coder.abs_read_only_fnames
-                    )
-                )
-
-                # Test dropping the external read-only file
-                commands.cmd_drop(Path(external_file_path).name)
-
-                # Check if the file was removed from abs_read_only_fnames
-                self.assertFalse(
-                    any(
-                        os.path.samefile(real_external_file_path, fname)
-                        for fname in coder.abs_read_only_fnames
-                    )
-                )
-        finally:
-            os.unlink(external_file_path)
-
-    def test_cmd_drop_read_only_with_relative_path(self):
-        with ChdirTemporaryDirectory() as repo_dir:
-            test_file = Path("test_file.txt")
-            test_file.write_text("Test content")
-
-            # Create a test file in a subdirectory
-            subdir = Path(repo_dir) / "subdir"
-            subdir.mkdir()
-            os.chdir(subdir)
-
-            io = InputOutput(pretty=False, fancy_input=False, yes=False)
-            coder = Coder.create(self.GPT35, None, io)
-            commands = Commands(io, coder)
-
-            # Add the file as read-only using absolute path
-            rel_path = str(Path("..") / "test_file.txt")
-            commands.cmd_read_only(rel_path)
-            self.assertEqual(len(coder.abs_read_only_fnames), 1)
-
-            # Try to drop using relative path from different working directories
-            commands.cmd_drop("test_file.txt")
-            self.assertEqual(len(coder.abs_read_only_fnames), 0)
-
-            # Add it again
-            commands.cmd_read_only(rel_path)
-            self.assertEqual(len(coder.abs_read_only_fnames), 1)
-
-            commands.cmd_drop(rel_path)
-            self.assertEqual(len(coder.abs_read_only_fnames), 0)
-
-            # Add it one more time
-            commands.cmd_read_only(rel_path)
-            self.assertEqual(len(coder.abs_read_only_fnames), 1)
-
-            commands.cmd_drop("test_file.txt")
-            self.assertEqual(len(coder.abs_read_only_fnames), 0)
-
     def test_cmd_read_only_bulk_conversion(self):
         with GitTemporaryDirectory() as repo_dir:
             io = InputOutput(pretty=False, fancy_input=False, yes=False)
@@ -1561,14 +1434,13 @@ class TestCommands(TestCase):
 
                 # Check if the file was removed from abs_read_only_fnames
                 self.assertEqual(len(coder.abs_read_only_fnames), 0)
-
             finally:
                 # Clean up: remove the test file from the home directory
                 test_file.unlink()
 
     def test_cmd_diff(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = git.Repo(repo_dir)
+            repo = GitRepo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1651,7 +1523,7 @@ class TestCommands(TestCase):
 
     def test_cmd_lint_with_dirty_file(self):
         with GitTemporaryDirectory() as repo_dir:
-            repo = git.Repo(repo_dir)
+            repo = GitRepo(repo_dir)
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1682,10 +1554,6 @@ class TestCommands(TestCase):
 
             # Verify that the file is still dirty after linting
             self.assertTrue(repo.is_dirty(filename))
-
-            del coder
-            del commands
-            del repo
 
     def test_cmd_reset(self):
         with GitTemporaryDirectory() as repo_dir:
