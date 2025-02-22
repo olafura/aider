@@ -35,6 +35,7 @@ certifi==2025.1.31
     #   requests
 cffi==1.17.1
     # via
+    #   pygit2
     #   sounddevice
     #   soundfile
 charset-normalizer==3.4.1
@@ -61,10 +62,6 @@ frozenlist==1.5.0
     #   aiosignal
 fsspec==2025.2.0
     # via huggingface-hub
-gitdb==4.0.12
-    # via gitpython
-gitpython==3.1.44
-    # via -r requirements/requirements.in
 grep-ast==0.6.1
     # via -r requirements/requirements.in
 h11==0.14.0
@@ -166,6 +163,8 @@ pydub==0.25.1
     # via -r requirements/requirements.in
 pyflakes==3.2.0
     # via flake8
+pygit2==1.17.0
+    # via -r requirements/requirements.in
 pygments==2.19.1
     # via rich
 pypandoc==1.15
@@ -205,8 +204,6 @@ six==1.17.0
     #   mixpanel
     #   posthog
     #   python-dateutil
-smmap==5.0.2
-    # via gitdb
 sniffio==1.3.1
     # via
     #   anyio

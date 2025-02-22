@@ -4,7 +4,7 @@
 
 pydub
 configargparse
-GitPython
+pygit2
 jsonschema
 rich
 prompt_toolkit
