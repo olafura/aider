@@ -104,7 +104,18 @@ class TestRepo(unittest.TestCase):
             fname2.touch()
             repo.index.add(str(fname2))
             repo.index.write()
-            repo.git.commit("-m", "bar")
+            repo.index.add(str(fname2))
+            repo.index.write()
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = repo.index.write_tree()
+            repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "bar",
+                tree,
+                [repo.head.target]
+            )
 
             fname3 = Path("baz.txt")
             fname3.touch()
@@ -258,7 +269,7 @@ class TestRepo(unittest.TestCase):
             git_repo.commit(fnames=[str(fname)], aider_edits=True)
 
             # check the committer name
-            commit = raw_repo.head.commit
+            commit = raw_repo[raw_repo.head.target]
             self.assertEqual(commit.author.name, "Test User (aider)")
             self.assertEqual(commit.committer.name, "Test User (aider)")
 
@@ -295,12 +306,13 @@ class TestRepo(unittest.TestCase):
             try:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.touch()
-                repo.index.add(str(file_path))
+                repo.index.add(str(file_path.relative_to(tempdir)))
                 repo.index.write()
                 created_files.append(Path(filename))
-            except OSError:
+            except (OSError, ValueError):
                 # windows won't allow files with quotes, that's ok
-                self.assertIn('"', filename)
+                if os.name == 'nt':
+                    self.assertIn('"', filename)
                 self.assertEqual(os.name, "nt")
 
         self.assertTrue(len(created_files) >= 3)
@@ -349,7 +361,8 @@ class TestRepo(unittest.TestCase):
             # new file, added but not committed
             fname2 = Path("new2.txt")
             fname2.touch()
-            raw_repo.git.add(str(fname2))
+            raw_repo.index.add(str(fname2))
+            raw_repo.index.write()
 
             # both should be there
             fnames = git_repo.get_tracked_files()
@@ -391,7 +404,8 @@ class TestRepo(unittest.TestCase):
             # new file, added but not committed
             fname2 = Path("new2.txt")
             fname2.touch()
-            raw_repo.git.add(str(fname2))
+            raw_repo.index.add(str(fname2))
+            raw_repo.index.write()
 
             # both should be there
             fnames = git_repo.get_tracked_files()
@@ -511,7 +525,16 @@ class TestRepo(unittest.TestCase):
             fname.touch()
             raw_repo.index.add(str(fname))
             raw_repo.index.write()
-            raw_repo.git.commit("-m", "new")
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = raw_repo.index.write_tree()
+            raw_repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "new",
+                tree,
+                [raw_repo.head.target]
+            )
 
             git_repo = GitRepo(InputOutput(), None, None)
 
