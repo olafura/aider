@@ -171,13 +171,16 @@ class TestRepo(unittest.TestCase):
             repo.index.write()
             author = pygit2.Signature("Test User", "test@example.com")
             tree = repo.index.write_tree()
+            # Get the parent commit
+            parent = repo.head.target
+            
             repo.create_commit(
                 "HEAD",
                 author,
                 author,
                 "second",
                 tree,
-                []
+                [parent]
             )
 
             git_repo = GitRepo(InputOutput(), None, ".")
@@ -254,7 +257,24 @@ class TestRepo(unittest.TestCase):
         with GitTemporaryDirectory():
             # new repo
             raw_repo = pygit2.init_repository(".")
-            # Create initial commit on main branch
+            
+            # Create initial commit
+            fname = Path("file.txt")
+            fname.touch()
+            raw_repo.index.add(str(fname))
+            raw_repo.index.write()
+            author = pygit2.Signature("Test User", "test@example.com")
+            tree = raw_repo.index.write_tree()
+            raw_repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "initial commit",
+                tree,
+                []
+            )
+            
+            # Create main branch reference
             ref = raw_repo.references.create("refs/heads/main", raw_repo.head.target)
             raw_repo.set_head(ref.name)
             config = raw_repo.config
