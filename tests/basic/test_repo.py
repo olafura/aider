@@ -132,7 +132,9 @@ class TestRepo(unittest.TestCase):
                 [repo.head.target]
             )
 
-            repo.git.checkout("HEAD^")
+            # Create a reference to the parent commit
+            parent_commit = repo.revparse_single("HEAD^")
+            repo.set_head(parent_commit.id)
 
             fname.write_text("index\n")
             repo.index.add(str(fname))
@@ -252,6 +254,9 @@ class TestRepo(unittest.TestCase):
         with GitTemporaryDirectory():
             # new repo
             raw_repo = pygit2.init_repository(".")
+            # Create initial commit on main branch
+            ref = raw_repo.references.create("refs/heads/main", raw_repo.head.target)
+            raw_repo.set_head(ref.name)
             config = raw_repo.config
             config["user.name"] = "Test User"
 
@@ -288,7 +293,7 @@ class TestRepo(unittest.TestCase):
             git_repo.commit(fnames=[str(fname)], aider_edits=False)
 
             # check the committer name
-            commit = raw_repo.head.commit
+            commit = raw_repo[raw_repo.head.target]
             self.assertEqual(commit.author.name, "Test User")
             self.assertEqual(commit.committer.name, "Test User (aider)")
 
@@ -327,7 +332,16 @@ class TestRepo(unittest.TestCase):
 
         self.assertTrue(len(created_files) >= 3)
 
-        repo.git.commit("-m", "added")
+        author = pygit2.Signature("Test User", "test@example.com")
+        tree = repo.index.write_tree()
+        repo.create_commit(
+            "HEAD",
+            author,
+            author,
+            "added",
+            tree,
+            []
+        )
 
         tracked_files = GitRepo(InputOutput(), [tempdir], None).get_tracked_files()
 
@@ -537,13 +551,19 @@ class TestRepo(unittest.TestCase):
             raw_repo.index.write()
             author = pygit2.Signature("Test User", "test@example.com")
             tree = raw_repo.index.write_tree()
+            # Create initial commit if needed
+            if not raw_repo.head_is_unborn:
+                parents = [raw_repo.head.target]
+            else:
+                parents = []
+            
             raw_repo.create_commit(
                 "HEAD",
                 author,
                 author,
                 "new",
                 tree,
-                [raw_repo.head.target]
+                parents
             )
 
             git_repo = GitRepo(InputOutput(), None, None)
