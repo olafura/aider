@@ -358,8 +358,8 @@ class TestCommands(TestCase):
             commands.cmd_git("commit -a -m msg")
 
             # Check if the file has been committed to the repository
-            repo = git.Repo(tempdir)
-            files_in_repo = repo.git.ls_files()
+            repo = pygit2.Repository(tempdir)
+            files_in_repo = [entry.path for entry in repo.index]
             self.assertIn("test.txt", files_in_repo)
 
     def test_cmd_tokens(self):

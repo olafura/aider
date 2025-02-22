@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import git
+import pygit2
 
 from aider.dump import dump  # noqa: F401
 from aider.io import InputOutput
@@ -21,12 +21,13 @@ class TestRepo(unittest.TestCase):
 
     def test_diffs_empty_repo(self):
         with GitTemporaryDirectory():
-            repo = git.Repo()
+            repo = pygit2.init_repository(".")
 
             # Add a change to the index
             fname = Path("foo.txt")
             fname.write_text("index\n")
-            repo.git.add(str(fname))
+            repo.index.add(str(fname))
+            repo.index.write()
 
             # Make a change in the working dir
             fname.write_text("workingdir\n")
@@ -47,7 +48,15 @@ class TestRepo(unittest.TestCase):
             fname2.touch()
             repo.git.add(str(fname2))
 
-            repo.git.commit("-m", "initial")
+            author = pygit2.Signature("Test User", "test@example.com")
+            repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "initial",
+                repo.index.write_tree(),
+                []
+            )
 
             fname.write_text("index\n")
             repo.git.add(str(fname))

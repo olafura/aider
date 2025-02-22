@@ -54,7 +54,10 @@ class TestMain(TestCase):
 
     @patch("aider.repo.GitRepo.get_commit_message", return_value="mock commit message")
     def test_main_with_empty_git_dir_new_file(self, _):
-        make_repo()
+        repo = pygit2.init_repository(".")
+        config = repo.config
+        config["user.name"] = "Test User"
+        config["user.email"] = "test@example.com"
         main(["--yes", "foo.txt", "--exit"], input=DummyInput(), output=DummyOutput())
         self.assertTrue(os.path.exists("foo.txt"))
 
@@ -120,7 +123,7 @@ class TestMain(TestCase):
         git_root = Path(git_root).resolve()
         self.assertEqual(git_root, Path(self.tempdir).resolve())
 
-        self.assertTrue(git.Repo(self.tempdir))
+        self.assertTrue(pygit2.Repository(self.tempdir))
 
         gitignore = Path.cwd() / ".gitignore"
         self.assertTrue(gitignore.exists())
