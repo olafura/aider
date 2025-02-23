@@ -755,11 +755,13 @@ class TestCommands(TestCase):
             fname.touch()
 
             # Initialize GitRepo correctly
-            repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
-            repo.repo = pygit2.init_repository(repo_dir, initial_head='main')
+            # Initialize repo with absolute path
+            repo = GitRepo(io=io, fnames=[], git_dname=str(Path(repo_dir).resolve()))
+            repo.repo = pygit2.init_repository(str(Path(repo_dir).resolve()), initial_head='main')
             repo.repo.config['user.name'] = 'Test User'
             repo.repo.config['user.email'] = 'testuser@example.com'
-            repo.repo.index.add(str(fname.relative_to(repo_dir)))
+            # Add file using absolute path
+            repo.repo.index.add(str(Path(fname).resolve()))
             repo.repo.index.write()
             author = pygit2.Signature("Test User", "testuser@example.com")
             repo.repo.create_commit(
@@ -830,10 +832,14 @@ class TestCommands(TestCase):
                 []
             )
 
-            try:
-                commit_obj = repo.repo.head.target
-                commit_hash = str(commit_obj)
-                coder.aider_commit_hashes.add(commit_hash[:7])
+            # Initialize coder and commands first
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            coder = Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
+            
+            commit_obj = repo.repo.head.target
+            commit_hash = str(commit_obj)
+            coder.aider_commit_hashes.add(commit_hash[:7])
 
                 # Leave a dirty `git rm`
                 repo.repo.index.remove("one.txt")
@@ -1851,7 +1857,8 @@ class TestCommands(TestCase):
                 self.assertEqual(Path(called_arg).name, filename)
 
             # Verify that the file is still dirty after linting
-            status = repo.repo.status(str(file_path.relative_to(repo_dir)))
+            # Use proper status call with untracked_files parameter
+            status = repo.repo.status(path=str(file_path.resolve()), untracked_files="normal")
             is_dirty = bool(status)
             self.assertTrue(is_dirty)
 
