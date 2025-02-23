@@ -126,15 +126,6 @@ class GitRepo:
         if aider_ignore_file:
             self.aider_ignore_file = Path(aider_ignore_file)
 
-        # Initialize Git interface
-        self._git = self.Git(self.repo)
-
-    @property
-    def git(self):
-        """A simple Git interface to mimic GitPython's git attribute using pygit2."""
-        if not hasattr(self, '_git'):
-            self._git = self.Git(self.repo)
-        return self._git
 
     @property
     def index(self):
@@ -144,57 +135,6 @@ class GitRepo:
             self._index.read()
         return self._index
 
-    class Git:
-        """A simple Git interface to mimic GitPython's git attribute using pygit2."""
-
-        def __init__(self, repo):
-            self.repo = repo
-
-        def add(self, filename):
-            try:
-                rel_path = os.path.relpath(filename, self.repo.workdir)
-                self.repo.index.add(rel_path)
-                self.repo.index.write()
-            except Exception as e:
-                raise AttributeError(f"Failed to add file '{filename}': {e}")
-
-        def commit(self, message, author=None, committer=None):
-            try:
-                if author is None:
-                    author = f"{self.repo.config['user.name']} <{self.repo.config['user.email']}>"
-                if committer is None:
-                    committer = author
-
-                author_signature = pygit2.Signature(*author.split(" <"))
-                committer_signature = pygit2.Signature(*committer.split(" <"))
-                tree = self.repo.index.write_tree()
-                parents = [self.repo.head.target] if not self.repo.head_is_unborn else []
-                self.repo.create_commit(
-                    'HEAD',
-                    author_signature,
-                    committer_signature,
-                    message,
-                    tree,
-                    parents
-                )
-            except Exception as e:
-                raise AttributeError(f"Failed to commit: {e}")
-
-        def diff(self, a="HEAD", b=None):
-            try:
-                if b is None:
-                    b = self.repo.head.target
-                diff = self.repo.diff(a, b)
-                return diff.patch
-            except Exception as e:
-                raise AttributeError(f"Failed to generate diff: {e}")
-
-        def ls_files(self):
-            """List all tracked files in the repository"""
-            try:
-                return [entry.path for entry in self.repo.index]
-            except Exception as e:
-                raise AttributeError(f"Failed to list files: {e}")
 
     def commit(self, fnames=None, context=None, message=None, aider_edits=False):
         if not fnames and not self.repo.status():
@@ -242,11 +182,12 @@ class GitRepo:
             else:
                 self.repo.index.add_all()
 
-            # Create commit using the Git interface
-            git_interface = self.git
-            git_interface.commit(full_commit_message)
-
-            commit_hash = git_interface.repo.revparse_single('HEAD').hex[:7]
+            self.repo.index.write()
+            tree = self.repo.index.write_tree()
+            signature = pygit2.Signature(f"{self.repo.config['user.name']} (aider)", self.repo.config["user.email"])
+            parents = [self.repo.head.target] if not self.repo.head_is_unborn else []
+            commit_id = self.repo.create_commit('HEAD', signature, signature, full_commit_message, tree, parents)
+            commit_hash = commit_id.hex[:7]
             self.io.tool_output(f"Commit {commit_hash} {commit_message}", bold=True)
             return commit_hash, commit_message
         except pygit2.GitError as err:
@@ -344,16 +285,10 @@ class GitRepo:
             self.io.tool_error(f"Unable to diff: {err}")
 
     def diff_commits(self, pretty, from_commit, to_commit):
-        args = []
-        if pretty:
-            args += ["--color"]
-        else:
-            args += ["--color=never"]
-
-        args += [from_commit, to_commit]
-        diffs = self.repo.git.diff(*args)
-
-        return diffs
+        from_commit_obj = self.repo.revparse_single(from_commit)
+        to_commit_obj = self.repo.revparse_single(to_commit)
+        diff = self.repo.diff(from_commit_obj, to_commit_obj)
+        return diff.patch
 
     def get_tracked_files(self):
         if not self.repo:
@@ -502,17 +437,9 @@ class GitRepo:
         Returns a list of all files which are dirty (not committed), either staged or in the working
         directory.
         """
-        dirty_files = set()
-
-        # Get staged files
-        staged_files = self.repo.git.diff("--name-only", "--cached").splitlines()
-        dirty_files.update(staged_files)
-
-        # Get unstaged files
-        unstaged_files = self.repo.git.diff("--name-only").splitlines()
-        dirty_files.update(unstaged_files)
-
-        return list(dirty_files)
+        if not self.repo:
+            return []
+        return list(self.repo.status().keys())
 
     def is_dirty(self, path=None):
         if path and not self.path_in_repo(path):
