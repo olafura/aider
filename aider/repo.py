@@ -117,10 +117,10 @@ class GitRepo:
                 raise FileNotFoundError
             self.repo = pygit2.Repository(repo_paths.pop())
             self.root = utils.safe_abs_path(self.repo.workdir)
-            # Patch the status method to include untracked_files="normal"
+            # Patch the status method to ignore extra keyword arguments
             orig_status = self.repo.status
-            def patched_status(path=None):
-                return orig_status(path=path, untracked_files="normal")
+            def patched_status(path=None, **kwargs):
+                return orig_status(path=path)
             self.repo.status = patched_status
 
         if aider_ignore_file:
