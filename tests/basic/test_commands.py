@@ -871,14 +871,16 @@ class TestCommands(TestCase):
                 [repo.repo.head.target]
             )
 
-            # Verify no exception is raised
-        except Exception as e:
-            self.fail(f"Test failed due to unexpected exception: {e}")
-        finally:
-            if 'coder' in locals():
-                del coder
-            del commands
-            del repo
+            try:
+                # Verify no exception is raised
+                pass
+            except Exception as e:
+                self.fail(f"Test failed due to unexpected exception: {e}")
+            finally:
+                if 'coder' in locals():
+                    del coder
+                del commands
+                del repo
 
     def test_cmd_save_and_load(self):
         with GitTemporaryDirectory() as repo_dir:
