@@ -820,6 +820,7 @@ class Commands:
                     fname = self.coder.get_rel_fname(abs_file_path)
                     self.io.tool_output(f"Added {fname} to the chat")
                     self.coder.check_added_files()
+        return self.coder
 
     def completions_drop(self):
         files = self.coder.get_inchat_relative_files()

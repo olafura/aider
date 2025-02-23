@@ -869,7 +869,8 @@ class TestCommands(TestCase):
             except Exception as e:
                 self.fail(f"Test failed due to unexpected exception: {e}")
             finally:
-                del coder
+                if 'coder' in locals():
+                    del coder
                 del commands
                 del repo
 
