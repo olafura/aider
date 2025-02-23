@@ -4,33 +4,16 @@ from pathlib import Path, PurePosixPath
 
 try:
     import pygit2
-
-    ANY_GIT_ERROR = [
-        pygit2.GitError,
-        pygit2.AlreadyExistsError,
-        pygit2.InvalidSpecError,
-    ]
+    ANY_GIT_ERROR = (pygit2.GitError,)
 except ImportError:
-    git = None
-    ANY_GIT_ERROR = []
+    pygit2 = None
+    ANY_GIT_ERROR = ()
 
 import pathspec
 
 from aider import prompts, utils
 
 from .dump import dump  # noqa: F401
-
-ANY_GIT_ERROR += [
-    OSError,
-    IndexError,
-    BufferError,
-    TypeError,
-    ValueError,
-    AttributeError,
-    AssertionError,
-    TimeoutError,
-]
-ANY_GIT_ERROR = tuple(ANY_GIT_ERROR)
 
 
 class GitRepo:
@@ -83,45 +66,31 @@ class GitRepo:
         self.ignore_file_cache = {}
 
         if git_dname:
-            git_dname = os.path.abspath(git_dname)
             check_fnames = [git_dname]
         elif fnames:
             check_fnames = fnames
         else:
             check_fnames = ["."]
 
-        repo_paths = []
+        repo_path = None
         for fname in check_fnames:
-            fname = Path(fname)
-            fname = fname.resolve()
-
+            fname = Path(fname).resolve()
             if not fname.exists() and fname.parent.exists():
                 fname = fname.parent
 
             try:
                 repo_path = pygit2.discover_repository(str(fname))
                 if repo_path:
-                    repo_path = utils.safe_abs_path(Path(repo_path).parent)
-                    repo_paths.append(repo_path)
+                    break
             except pygit2.GitError:
-                pass
+                continue
 
-        num_repos = len(set(repo_paths))
-
-        if num_repos == 0:
+        if not repo_path:
             self.repo = None
             self.root = os.path.abspath(git_dname) if git_dname else os.getcwd()
         else:
-            if num_repos > 1:
-                self.io.tool_error("Files are in different git repos.")
-                raise FileNotFoundError
-            self.repo = pygit2.Repository(repo_paths.pop())
+            self.repo = pygit2.Repository(repo_path)
             self.root = utils.safe_abs_path(self.repo.workdir)
-            # Patch the status method to ignore extra keyword arguments
-            orig_status = self.repo.status
-            def patched_status(path=None, **kwargs):
-                return orig_status(path=path)
-            self.repo.status = patched_status
 
         if aider_ignore_file:
             self.aider_ignore_file = Path(aider_ignore_file)
