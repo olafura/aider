@@ -841,44 +841,44 @@ class TestCommands(TestCase):
             commit_hash = str(commit_obj)
             coder.aider_commit_hashes.add(commit_hash[:7])
 
-                # Leave a dirty `git rm`
-                repo.repo.index.remove("one.txt")
-                repo.repo.index.write()
+            # Leave a dirty `git rm`
+            repo.repo.index.remove("one.txt")
+            repo.repo.index.write()
 
-                io = InputOutput(pretty=False, fancy_input=False, yes=True)
-                from aider.coders import Coder
+            io = InputOutput(pretty=False, fancy_input=False, yes=True)
+            from aider.coders import Coder
 
-                coder = Coder.create(self.GPT35, None, io)
-                commands = Commands(io, coder)
+            coder = Coder.create(self.GPT35, None, io)
+            commands = Commands(io, coder)
 
-                # Initialize GitRepo correctly
-                commands.repo = repo
+            # Initialize GitRepo correctly
+            commands.repo = repo
 
-                # There's no reason this /add should trigger a commit
-                commands.cmd_add("two.txt")
+            # There's no reason this /add should trigger a commit
+            commands.cmd_add("two.txt")
 
-                # Check that the last commit is still present
-                current_commit = str(repo.repo.head.target)
-                self.assertEqual(commit_hash[:7], current_commit[:7])
+            # Check that the last commit is still present
+            current_commit = str(repo.repo.head.target)
+            self.assertEqual(commit_hash[:7], current_commit[:7])
 
-                # Commit cleanup
-                repo.repo.create_commit(
-                    "HEAD",
-                    author,
-                    author,
-                    "cleanup",
-                    repo.repo.index.write_tree(),
-                    [repo.repo.head.target]
-                )
+            # Commit cleanup
+            repo.repo.create_commit(
+                "HEAD",
+                author,
+                author,
+                "cleanup",
+                repo.repo.index.write_tree(),
+                [repo.repo.head.target]
+            )
 
-                # Verify no exception is raised
-            except Exception as e:
-                self.fail(f"Test failed due to unexpected exception: {e}")
-            finally:
-                if 'coder' in locals():
-                    del coder
-                del commands
-                del repo
+            # Verify no exception is raised
+        except Exception as e:
+            self.fail(f"Test failed due to unexpected exception: {e}")
+        finally:
+            if 'coder' in locals():
+                del coder
+            del commands
+            del repo
 
     def test_cmd_save_and_load(self):
         with GitTemporaryDirectory() as repo_dir:
