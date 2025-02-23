@@ -4,16 +4,33 @@ from pathlib import Path, PurePosixPath
 
 try:
     import pygit2
-    ANY_GIT_ERROR = (pygit2.GitError,)
+
+    ANY_GIT_ERROR = [
+        pygit2.GitError,
+        pygit2.AlreadyExistsError,
+        pygit2.InvalidSpecError,
+    ]
 except ImportError:
-    pygit2 = None
-    ANY_GIT_ERROR = ()
+    git = None
+    ANY_GIT_ERROR = []
 
 import pathspec
 
 from aider import prompts, utils
 
 from .dump import dump  # noqa: F401
+
+ANY_GIT_ERROR += [
+    OSError,
+    IndexError,
+    BufferError,
+    TypeError,
+    ValueError,
+    AttributeError,
+    AssertionError,
+    TimeoutError,
+]
+ANY_GIT_ERROR = tuple(ANY_GIT_ERROR)
 
 
 class GitRepo:
@@ -82,7 +99,7 @@ class GitRepo:
                 repo_path = pygit2.discover_repository(str(fname))
                 if repo_path:
                     break
-            except pygit2.GitError:
+            except ANY_GIT_ERROR:
                 continue
 
         if not repo_path:
