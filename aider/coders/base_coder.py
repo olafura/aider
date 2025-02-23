@@ -108,7 +108,7 @@ class Coder:
 
     @classmethod
     def create(
-        cls,
+        self,
         main_model=None,
         edit_format=None,
         io=None,
