@@ -12,8 +12,9 @@ def safe_relative_to(self, other, *args, **kwargs):
     try:
         return _original_relative_to(self, other, *args, **kwargs)
     except ValueError:
-        abs_self = self if self.is_absolute() else Path.cwd() / self
-        return Path(os.path.relpath(str(abs_self.resolve()), str(other)))
+        # Use non-strict resolution so that even non-existing files work
+        abs_self = self.resolve(strict=False)
+        return Path(os.path.relpath(str(abs_self), str(other)))
 Path.relative_to = safe_relative_to
 
 import pyperclip
