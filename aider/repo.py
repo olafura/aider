@@ -43,14 +43,6 @@ class GitRepo:
     ignore_file_cache = {}
     git_repo_error = None
 
-    @classmethod
-    def init(cls, path=None):
-        """Initialize a new Git repository"""
-        if path is None:
-            path = "."
-        path = Path(path).resolve()
-        repo = pygit2.init_repository(str(path))
-        return cls(io=None, fnames=[], git_dname=str(path))
 
     def __init__(
         self,
@@ -113,13 +105,6 @@ class GitRepo:
             self.aider_ignore_file = Path(aider_ignore_file)
 
 
-    @property
-    def index(self):
-        """Access to the repository index"""
-        if not hasattr(self, '_index'):
-            self._index = self.repo.index
-            self._index.read()
-        return self._index
 
 
     def commit(self, fnames=None, context=None, message=None, aider_edits=False):
@@ -159,6 +144,7 @@ class GitRepo:
         try:
             # Stage files
             index = self.repo.index
+            index.read()
             if fnames:
                 for fname in fnames:
                     try:
@@ -171,7 +157,7 @@ class GitRepo:
 
             index.write()
             tree = index.write_tree()
-            signature = pygit2.Signature(f"{self.repo.config['user.name']} (aider)", self.repo.config["user.email"])
+            signature = pygit2.Signature(f"{original_user_name} (aider)", self.repo.config["user.email"])
             parents = [self.repo.head.target] if not self.repo.head_is_unborn else []
             commit_id = self.repo.create_commit('HEAD', signature, signature, full_commit_message, tree, parents)
             commit_hash = commit_id.hex[:7]
@@ -240,8 +226,8 @@ class GitRepo:
         try:
             active_branch = self.repo.active_branch
             try:
-                commits = self.repo.iter_commits(active_branch)
-                current_branch_has_commits = any(commits)
+                # Check if the branch has any commits
+                current_branch_has_commits = not self.repo.head_is_unborn
             except ANY_GIT_ERROR:
                 pass
         except (TypeError,) + ANY_GIT_ERROR:
@@ -257,11 +243,23 @@ class GitRepo:
 
         try:
             if current_branch_has_commits:
-                diffs += self.repo.diff("HEAD", None, paths=fnames).patch
+                head = self.repo.revparse_single('HEAD')
+                diff = self.repo.diff(head, None, paths=fnames)
+                diffs += diff.patch
                 return diffs
 
-            index_diffs = self.repo.diff("HEAD", None, paths=fnames).patch
-            working_diffs = self.repo.diff(None, paths=fnames).patch
+            # For repos with no commits yet
+            index = self.repo.index
+            index.read()
+            index_tree = index.write_tree()
+            index_obj = self.repo.get(index_tree)
+            
+            # Get diff between index and working directory
+            diff = self.repo.diff_tree_to_workdir(index_obj, paths=fnames)
+            working_diffs = diff.patch
+            
+            # Empty diff for index since there's no HEAD
+            index_diffs = ""
             diffs += index_diffs
             diffs += working_diffs
 
@@ -272,7 +270,7 @@ class GitRepo:
     def diff_commits(self, pretty, from_commit, to_commit):
         from_commit_obj = self.repo.revparse_single(from_commit)
         to_commit_obj = self.repo.revparse_single(to_commit)
-        diff = self.repo.diff(from_commit_obj, to_commit_obj)
+        diff = self.repo.diff_tree_to_tree(from_commit_obj.tree, to_commit_obj.tree)
         return diff.patch
 
     def get_tracked_files(self):
@@ -295,17 +293,19 @@ class GitRepo:
                 files = self.tree_files[commit]
             else:
                 try:
-                    iterator = commit.tree.traverse()
-                    while True:
-                        try:
-                            blob = next(iterator)
-                            if blob.type == "blob":  # blob is a file
-                                files.add(blob.path)
-                        except IndexError:
-                            self.io.tool_warning(f"GitRepo: read error skipping {blob.path}")
-                            continue
-                        except StopIteration:
-                            break
+                    # Traverse the tree to find all files
+                    def traverse_tree(tree, path=""):
+                        for entry in tree:
+                            entry_path = path + entry.name if not path else f"{path}/{entry.name}"
+                            if entry.type_str == "tree":
+                                # It's a directory, recurse
+                                subtree = self.repo[entry.id]
+                                traverse_tree(subtree, entry_path)
+                            elif entry.type_str == "blob":
+                                # It's a file
+                                files.add(entry_path)
+                    
+                    traverse_tree(commit.tree)
                 except ANY_GIT_ERROR as err:
                     self.git_repo_error = err
                     self.io.tool_error(f"Unable to list files in git repo: {err}")
@@ -315,7 +315,9 @@ class GitRepo:
                 self.tree_files[commit] = set(files)
 
         # Add staged files
-        staged_files = [path for path, _ in self.repo.index.entries.keys()]
+        index = self.repo.index
+        index.read()
+        staged_files = [entry.path for entry in index]
         files.update(self.normalize_path(path) for path in staged_files)
 
         res = [fname for fname in files if not self.ignored_file(fname)]
@@ -429,7 +431,14 @@ class GitRepo:
         if path and not self.path_in_repo(path):
             return True
 
-        return self.repo.is_dirty(path=path)
+        # Check if repo has uncommitted changes
+        if not path:
+            return bool(self.repo.status())
+        
+        # Check if specific path is dirty
+        status = self.repo.status()
+        rel_path = os.path.relpath(path, self.root) if path else None
+        return rel_path in status
 
     def get_head_commit(self):
         try:
