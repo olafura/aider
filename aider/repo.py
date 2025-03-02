@@ -458,7 +458,7 @@ class GitRepo:
         # Check if specific path is dirty
         status = self.repo.status()
         rel_path = os.path.relpath(path, self.root) if path else None
-        return rel_path in status
+        return status.get(rel_path, 0) != 0
 
     def get_head_commit(self):
         if not self.repo:
