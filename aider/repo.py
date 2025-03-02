@@ -95,11 +95,18 @@ class GitRepo:
                 continue
 
         if not repo_path:
+            # No git repository found
             self.repo = None
             self.root = os.path.abspath(git_dname) if git_dname else os.getcwd()
         else:
-            self.repo = pygit2.Repository(repo_path)
-            self.root = utils.safe_abs_path(self.repo.workdir)
+            try:
+                self.repo = pygit2.Repository(repo_path)
+                self.root = utils.safe_abs_path(self.repo.workdir)
+            except ANY_GIT_ERROR as err:
+                if io:
+                    io.tool_error(f"Error opening git repository: {err}")
+                self.repo = None
+                self.root = os.path.abspath(git_dname) if git_dname else os.getcwd()
 
         if aider_ignore_file:
             self.aider_ignore_file = Path(aider_ignore_file)
@@ -179,10 +186,12 @@ class GitRepo:
                     del os.environ["GIT_AUTHOR_NAME"]
 
     def get_rel_repo_dir(self):
+        if not self.repo:
+            return None
         try:
-            return os.path.relpath(self.repo.git_dir, os.getcwd())
+            return os.path.relpath(self.repo.path, os.getcwd())
         except (ValueError, OSError):
-            return self.repo.git_dir
+            return self.repo.path
 
     def get_commit_message(self, diffs, context):
         diffs = "# Diffs:\n" + diffs
@@ -276,19 +285,24 @@ class GitRepo:
             return []
 
         try:
-            commit = self.repo.head.commit
-        except ValueError:
+            # Check if the repository has any commits
+            if self.repo.head_is_unborn:
+                commit = None
+            else:
+                commit = self.repo.head.peel(pygit2.Commit)
+        except (ValueError, pygit2.GitError) as err:
             commit = None
         except ANY_GIT_ERROR as err:
             self.git_repo_error = err
-            self.io.tool_error(f"Unable to list files in git repo: {err}")
-            self.io.tool_output("Is your git repo corrupted?")
+            if self.io:
+                self.io.tool_error(f"Unable to list files in git repo: {err}")
+                self.io.tool_output("Is your git repo corrupted?")
             return []
 
         files = set()
         if commit:
-            if commit in self.tree_files:
-                files = self.tree_files[commit]
+            if commit.id in self.tree_files:
+                files = self.tree_files[commit.id]
             else:
                 try:
                     # Traverse the tree to find all files
@@ -306,17 +320,22 @@ class GitRepo:
                     traverse_tree(commit.tree)
                 except ANY_GIT_ERROR as err:
                     self.git_repo_error = err
-                    self.io.tool_error(f"Unable to list files in git repo: {err}")
-                    self.io.tool_output("Is your git repo corrupted?")
+                    if self.io:
+                        self.io.tool_error(f"Unable to list files in git repo: {err}")
+                        self.io.tool_output("Is your git repo corrupted?")
                     return []
                 files = set(self.normalize_path(path) for path in files)
-                self.tree_files[commit] = set(files)
+                self.tree_files[commit.id] = set(files)
 
         # Add staged files
-        index = self.repo.index
-        index.read()
-        staged_files = [entry.path for entry in index]
-        files.update(self.normalize_path(path) for path in staged_files)
+        try:
+            index = self.repo.index
+            index.read()
+            staged_files = [entry.path for entry in index]
+            files.update(self.normalize_path(path) for path in staged_files)
+        except ANY_GIT_ERROR as err:
+            if self.io:
+                self.io.tool_error(f"Unable to read git index: {err}")
 
         res = [fname for fname in files if not self.ignored_file(fname)]
 
@@ -361,9 +380,9 @@ class GitRepo:
 
     def git_ignored_file(self, path):
         if not self.repo:
-            return
+            return False
         try:
-            if self.repo.ignored(path):
+            if self.repo.path_is_ignored(path):
                 return True
         except ANY_GIT_ERROR:
             return False
@@ -426,6 +445,9 @@ class GitRepo:
         return list(self.repo.status().keys())
 
     def is_dirty(self, path=None):
+        if not self.repo:
+            return False
+            
         if path and not self.path_in_repo(path):
             return True
 
@@ -439,18 +461,22 @@ class GitRepo:
         return rel_path in status
 
     def get_head_commit(self):
+        if not self.repo:
+            return None
         try:
-            return self.repo.head.commit
+            if self.repo.head_is_unborn:
+                return None
+            return self.repo.head.peel(pygit2.Commit)
         except (ValueError,) + ANY_GIT_ERROR:
             return None
 
     def get_head_commit_sha(self, short=False):
         commit = self.get_head_commit()
         if not commit:
-            return
+            return None
         if short:
-            return commit.hex[:7]
-        return commit.hex
+            return commit.id.hex[:7]
+        return commit.id.hex
 
     def get_head_commit_message(self, default=None):
         commit = self.get_head_commit()
