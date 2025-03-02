@@ -12,7 +12,7 @@ from aider.dump import dump  # noqa: F401
 from aider.io import InputOutput
 from aider.models import Model
 from aider.repo import GitRepo
-from aider.utils import GitTemporaryDirectory
+from aider.utils import GitTemporaryDirectory, make_repo
 
 # Mock sounddevice module
 class MockSoundDevice:
@@ -32,7 +32,7 @@ class TestRepo(unittest.TestCase):
 
     def test_diffs_empty_repo(self):
         with GitTemporaryDirectory():
-            repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
 
             # Add a change to the index
             fname = Path("foo.txt")
@@ -50,7 +50,7 @@ class TestRepo(unittest.TestCase):
 
     def test_diffs_nonempty_repo(self):
         with GitTemporaryDirectory():
-            repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
             fname = Path("foo.txt")
             fname.write_text("initial\n")
             repo.index.add(str(fname))
@@ -61,7 +61,7 @@ class TestRepo(unittest.TestCase):
             repo.index.add(str(fname2))
             repo.index.write()
 
-            author = pygit2.Signature("Test User", "test@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
@@ -84,12 +84,12 @@ class TestRepo(unittest.TestCase):
 
     def test_diffs_detached_head(self):
         with GitTemporaryDirectory():
-            repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
             fname = Path("foo.txt")
             fname.touch()
             repo.index.add(str(fname))
             repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
+            author = repo.default_signature
             tree = repo.index.write_tree()
             repo.create_commit(
                 "HEAD",
@@ -106,7 +106,7 @@ class TestRepo(unittest.TestCase):
             repo.index.write()
             repo.index.add(str(fname2))
             repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
+            author = repo.default_signature
             tree = repo.index.write_tree()
             repo.create_commit(
                 "HEAD",
@@ -121,7 +121,6 @@ class TestRepo(unittest.TestCase):
             fname3.touch()
             repo.index.add(str(fname3))
             repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
             tree = repo.index.write_tree()
             repo.create_commit(
                 "HEAD",
@@ -149,13 +148,13 @@ class TestRepo(unittest.TestCase):
 
     def test_diffs_between_commits(self):
         with GitTemporaryDirectory():
-            repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
             fname = Path("foo.txt")
 
             fname.write_text("one\n")
             repo.index.add(str(fname))
             repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
+            author = repo.default_signature
             tree = repo.index.write_tree()
             repo.create_commit(
                 "HEAD",
@@ -169,7 +168,6 @@ class TestRepo(unittest.TestCase):
             fname.write_text("two\n")
             repo.index.add(str(fname))
             repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
             tree = repo.index.write_tree()
             # Get the parent commit
             parent = repo.head.target
@@ -255,17 +253,16 @@ class TestRepo(unittest.TestCase):
             return
 
         with GitTemporaryDirectory():
-            # Initialize repository with 'main' as the initial head
-            raw_repo = pygit2.init_repository(".", initial_head='main')
+            repo = pygit2.Repository(".")
 
             # Create initial commit on 'main' branch
             fname = Path("file.txt")
             fname.touch()
-            raw_repo.index.add(str(fname))
-            raw_repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
-            tree = raw_repo.index.write_tree()
-            raw_repo.create_commit(
+            repo.index.add(str(fname))
+            repo.index.write()
+            author = repo.default_signature
+            tree = repo.index.write_tree()
+            repo.create_commit(
                 "refs/heads/main",
                 author,
                 author,
@@ -275,24 +272,24 @@ class TestRepo(unittest.TestCase):
             )
 
             # Set HEAD to main branch
-            raw_repo.set_head("refs/heads/main")
-            config = raw_repo.config
+            repo.set_head("refs/heads/main")
+            config = repo.config
             config["user.name"] = "Test User"
 
             # Add a file and commit it
             fname = Path("file.txt")
             fname.touch()
-            raw_repo.index.add(str(fname))
-            raw_repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
-            tree = raw_repo.index.write_tree()
-            raw_repo.create_commit(
+            repo.index.add(str(fname))
+            repo.index.write()
+            author = repo.default_signature
+            tree = repo.index.write_tree()
+            repo.create_commit(
                 "refs/heads/main",
                 author,
                 author,
                 "initial commit",
                 tree,
-                [raw_repo.head.target]
+                [repo.head.target]
             )
 
             io = InputOutput()
@@ -303,7 +300,7 @@ class TestRepo(unittest.TestCase):
             git_repo.commit(fnames=[str(fname)], aider_edits=True)
 
             # Check the committer name
-            commit = raw_repo[raw_repo.head.target]
+            commit = repo[raw_repo.head.target]
             self.assertEqual(commit.author.name, "Test User (aider)")
             self.assertEqual(commit.committer.name, "Test User (aider)")
 
@@ -312,7 +309,7 @@ class TestRepo(unittest.TestCase):
             git_repo.commit(fnames=[str(fname)], aider_edits=False)
 
             # Check the committer name
-            commit = raw_repo[raw_repo.head.target]
+            commit = repo[raw_repo.head.target]
             self.assertEqual(commit.author.name, "Test User")
             self.assertEqual(commit.committer.name, "Test User (aider)")
 
@@ -327,10 +324,7 @@ class TestRepo(unittest.TestCase):
         tempdir = Path(tempfile.mkdtemp())
 
         # Initialize a git repository in the temporary directory and set user name and email
-        repo = pygit2.init_repository(tempdir)
-        config = repo.config
-        config["user.name"] = "Test User"
-        config["user.email"] = "testuser@example.com"
+        repo = make_repo(tempdir)
 
         # Create three empty files and add them to the git repository
         filenames = ["README.md", "subdir/fänny.md", "systemüber/blick.md", 'file"with"quotes.txt']
@@ -351,7 +345,7 @@ class TestRepo(unittest.TestCase):
 
         self.assertTrue(len(created_files) >= 3)
 
-        author = pygit2.Signature("Test User", "test@example.com")
+        author = repo.default_signature
         tree = repo.index.write_tree()
         repo.create_commit(
             "HEAD",
@@ -373,13 +367,13 @@ class TestRepo(unittest.TestCase):
     def test_get_tracked_files_with_new_staged_file(self):
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
 
-            # add it, but no commits at all in the raw_repo yet
+            # add it, but no commits at all in the repo yet
             fname = Path("new.txt")
             fname.touch()
-            raw_repo.index.add(str(fname))
-            raw_repo.index.write()
+            repo.index.add(str(fname))
+            repo.index.write()
 
             git_repo = GitRepo(InputOutput(), None, None)
 
@@ -388,9 +382,9 @@ class TestRepo(unittest.TestCase):
             self.assertIn(str(fname), fnames)
 
             # commit it, better still be there
-            author = pygit2.Signature("Test User", "test@example.com")
-            tree = raw_repo.index.write_tree()
-            raw_repo.create_commit(
+            author = repo.default_signature
+            tree = repo.index.write_tree()
+            repo.create_commit(
                 "HEAD",
                 author,
                 author,
@@ -404,8 +398,8 @@ class TestRepo(unittest.TestCase):
             # new file, added but not committed
             fname2 = Path("new2.txt")
             fname2.touch()
-            raw_repo.index.add(str(fname2))
-            raw_repo.index.write()
+            repo.index.add(str(fname2))
+            repo.index.write()
 
             # both should be there
             fnames = git_repo.get_tracked_files()
@@ -415,13 +409,13 @@ class TestRepo(unittest.TestCase):
     def test_get_tracked_files_with_aiderignore(self):
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
 
-            # add it, but no commits at all in the raw_repo yet
+            # add it, but no commits at all in the repo yet
             fname = Path("new.txt")
             fname.touch()
-            raw_repo.index.add(str(fname))
-            raw_repo.index.write()
+            repo.index.add(str(fname))
+            repo.index.write()
 
             aiderignore = Path(".aiderignore")
             git_repo = GitRepo(InputOutput(), None, None, str(aiderignore))
@@ -431,9 +425,9 @@ class TestRepo(unittest.TestCase):
             self.assertIn(str(fname), fnames)
 
             # commit it, better still be there
-            author = pygit2.Signature("Test User", "test@example.com")
-            tree = raw_repo.index.write_tree()
-            raw_repo.create_commit(
+            author = repo.default_signature
+            tree = repo.index.write_tree()
+            repo.create_commit(
                 "HEAD",
                 author,
                 author,
@@ -447,8 +441,8 @@ class TestRepo(unittest.TestCase):
             # new file, added but not committed
             fname2 = Path("new2.txt")
             fname2.touch()
-            raw_repo.index.add(str(fname2))
-            raw_repo.index.write()
+            repo.index.add(str(fname2))
+            repo.index.write()
 
             # both should be there
             fnames = git_repo.get_tracked_files()
@@ -476,14 +470,14 @@ class TestRepo(unittest.TestCase):
     def test_get_tracked_files_from_subdir(self):
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
 
-            # add it, but no commits at all in the raw_repo yet
+            # add it, but no commits at all in the repo yet
             fname = Path("subdir/new.txt")
             fname.parent.mkdir()
             fname.touch()
-            raw_repo.index.add(str(fname))
-            raw_repo.index.write()
+            repo.index.add(str(fname))
+            repo.index.write()
 
             os.chdir(fname.parent)
 
@@ -494,9 +488,9 @@ class TestRepo(unittest.TestCase):
             self.assertIn(str(fname), fnames)
 
             # commit it, better still be there
-            author = pygit2.Signature("Test User", "test@example.com")
-            tree = raw_repo.index.write_tree()
-            raw_repo.create_commit(
+            author = repo.default_signature
+            tree = repo.index.write_tree()
+            repo.create_commit(
                 "HEAD",
                 author,
                 author,
@@ -510,7 +504,7 @@ class TestRepo(unittest.TestCase):
     def test_subtree_only(self):
         with GitTemporaryDirectory():
             # Create a new repo
-            raw_repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
 
             # Create files in different directories
             root_file = Path("root.txt")
@@ -523,13 +517,13 @@ class TestRepo(unittest.TestCase):
             another_subdir_file.parent.mkdir()
             another_subdir_file.touch()
 
-            raw_repo.index.add(str(root_file))
-            raw_repo.index.add(str(subdir_file)) 
-            raw_repo.index.add(str(another_subdir_file))
-            raw_repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
-            tree = raw_repo.index.write_tree()
-            raw_repo.create_commit(
+            repo.index.add(str(root_file))
+            repo.index.add(str(subdir_file)) 
+            repo.index.add(str(another_subdir_file))
+            repo.index.write()
+            author = repo.default_signature
+            tree = repo.index.write_tree()
+            repo.create_commit(
                 "HEAD",
                 author,
                 author,
@@ -561,22 +555,22 @@ class TestRepo(unittest.TestCase):
 
         with GitTemporaryDirectory():
             # new repo
-            raw_repo = pygit2.init_repository(".")
+            repo = pygit2.Repository(".")
 
-            # add it, but no commits at all in the raw_repo yet
+            # add it, but no commits at all in the repo yet
             fname = Path("file.txt")
             fname.touch()
-            raw_repo.index.add(str(fname))
-            raw_repo.index.write()
-            author = pygit2.Signature("Test User", "test@example.com")
-            tree = raw_repo.index.write_tree()
+            repo.index.add(str(fname))
+            repo.index.write()
+            author = repo.default_signature
+            tree = repo.index.write_tree()
             # Create initial commit if needed
-            if not raw_repo.head_is_unborn:
-                parents = [raw_repo.head.target]
+            if not repo.head_is_unborn:
+                parents = [repo.head.target]
             else:
                 parents = []
             
-            raw_repo.create_commit(
+            repo.create_commit(
                 "HEAD",
                 author,
                 author,

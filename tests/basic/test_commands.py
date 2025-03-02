@@ -397,7 +397,7 @@ class TestCommands(TestCase):
             file_path.touch()
             repo.index.add(str(file_path.relative_to(self.tempdir)))
         repo.index.write()
-        author = pygit2.Signature("Test User", "testuser@example.com")
+        author = repo.default_signature
         repo.create_commit(
             "HEAD",
             author,
@@ -568,7 +568,7 @@ class TestCommands(TestCase):
             for fname in ["file1.txt", "file2.py", "subdir/file3.md"]:
                 repo.index.add(fname)
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
@@ -705,7 +705,7 @@ class TestCommands(TestCase):
                 Path(fname).touch()
                 repo.index.add(fname)
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
@@ -1234,7 +1234,7 @@ class TestCommands(TestCase):
             file_path.write_text("first content")
             repo.index.add(str(Path(filename).name))
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
@@ -1247,7 +1247,7 @@ class TestCommands(TestCase):
             file_path.write_text("second content")
             repo.index.add(str(file_path.relative_to(repo_dir)))
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
@@ -1298,7 +1298,7 @@ class TestCommands(TestCase):
             file_path.write_text("new file content")
             repo.index.add(str(file_path.relative_to(repo_dir)))
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
@@ -1314,7 +1314,6 @@ class TestCommands(TestCase):
             file_path.write_text("new file content")
             repo.index.add(str(file_path.relative_to(repo_dir)))
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
             repo.create_commit(
                 "HEAD",
                 author,
@@ -1356,7 +1355,7 @@ class TestCommands(TestCase):
             file_path.write_text("new file content")
             repo.index.add(str(file_path.relative_to(repo_dir)))
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
@@ -1415,7 +1414,7 @@ class TestCommands(TestCase):
             Path(fname2).touch()
             repo.index.add(fname2)
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
@@ -1706,7 +1705,7 @@ class TestCommands(TestCase):
             file_path.write_text("Initial content\n")
             repo.index.add(str(file_path.relative_to(repo_dir)))
             repo.index.write()
-            author = pygit2.Signature("Test User", "testuser@example.com")
+            author = repo.default_signature
             repo.create_commit(
                 "HEAD",
                 author,
