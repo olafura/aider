@@ -79,12 +79,30 @@ def make_repo(path=None):
 
     if not path:
         path = "."
-    repo = pygit2.init_repository(path)
+    repo = pygit2.init_repository(path, initial_head='main')
     config = repo.config
     config["user.name"] = "Test User"
     config["user.email"] = "testuser@example.com"
 
     return repo
+
+def walk_repo_files(repo, branch="main"):
+    try:
+        tree = repo.revparse_single(branch).tree
+        trees_and_paths = [(tree, [])]
+        # keep going until there is no more data
+        while len(trees_and_paths) != 0:
+            tree, path = trees_and_paths.pop() # take the last entry
+            for entry in tree:
+                if entry.filemode == pygit2.GIT_FILEMODE_TREE:
+                    next_tree = repo.get(entry.id)
+                    next_path = list(path)
+                    next_path.append(entry.name)
+                    trees_and_paths.append((next_tree, next_path,))
+                else:
+                    yield os.path.join(*path, entry.name)
+    except:
+        []
 
 
 def is_image_file(file_name):
