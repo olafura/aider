@@ -11,7 +11,7 @@ try:
         pygit2.InvalidSpecError,
     ]
 except ImportError:
-    git = None
+    pygit2 = None
     ANY_GIT_ERROR = []
 
 import pathspec
