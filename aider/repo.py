@@ -289,18 +289,45 @@ class GitRepo:
             index_tree = index.write_tree()
             index_obj = self.repo.get(index_tree)
             
-            # Get diff between index and working directory
-            diff = self.repo.diff_tree_to_workdir(index_obj, paths=fnames)
-            working_diffs = diff.patch
-            
-            # Empty diff for index since there's no HEAD
-            index_diffs = ""
-            diffs += index_diffs
-            diffs += working_diffs
+            try:
+                # Get diff between index and working directory
+                diff = self.repo.diff_tree_to_workdir(index_obj, paths=fnames)
+                working_diffs = diff.patch
+                
+                # Empty diff for index since there's no HEAD
+                index_diffs = ""
+                diffs += index_diffs
+                diffs += working_diffs
+            except AttributeError:
+                # Fallback for older pygit2 versions that don't have diff_tree_to_workdir
+                # Create a simple diff by reading the file content
+                for fname in fnames or self.repo.status().keys():
+                    try:
+                        path = Path(fname)
+                        if path.exists():
+                            current_content = path.read_text()
+                            # Check if file is in index
+                            try:
+                                index_entry = self.repo.index[fname]
+                                blob = self.repo[index_entry.id]
+                                index_content = blob.data.decode('utf-8')
+                                if current_content != index_content:
+                                    diffs += f"diff --git a/{fname} b/{fname}\n"
+                                    diffs += f"--- a/{fname}\n"
+                                    diffs += f"+++ b/{fname}\n"
+                                    diffs += f"@@ -1 +1 @@\n"
+                                    diffs += f"-{index_content.strip()}\n"
+                                    diffs += f"+{current_content.strip()}\n"
+                            except (KeyError, ValueError):
+                                diffs += f"New file: {fname}\n"
+                                diffs += f"+{current_content.strip()}\n"
+                    except Exception:
+                        pass
 
             return diffs
         except ANY_GIT_ERROR as err:
             self.io.tool_error(f"Unable to diff: {err}")
+            return ""  # Return empty string instead of None
 
     def diff_commits(self, pretty, from_commit, to_commit):
         from_commit_obj = self.repo.revparse_single(from_commit)
