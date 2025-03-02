@@ -607,7 +607,7 @@ class TestCommands(TestCase):
                 f.write("new")
 
             # Check if repo is dirty
-            status = repo.repo.status()
+            status = repo.repo.status(untracked_files="no")
             is_dirty = any(status.values())
             self.assertTrue(is_dirty)
 
@@ -618,7 +618,7 @@ class TestCommands(TestCase):
             # Check if repo is clean after commit
             repo.repo.index.add(fname)  # Re-add the file
             repo.repo.index.write()     # Write the index
-            status_after = repo.repo.status()
+            status_after = repo.repo.status(untracked_files="no")
             is_dirty_after = any(status_after.values())
             self.assertFalse(is_dirty_after)
 
