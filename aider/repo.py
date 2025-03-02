@@ -257,18 +257,6 @@ class GitRepo:
 
     def get_diffs(self, fnames=None):
         # We always want diffs of index and working dir
-
-        current_branch_has_commits = False
-        try:
-            active_branch = self.repo.active_branch
-            try:
-                # Check if the branch has any commits
-                current_branch_has_commits = not self.repo.head_is_unborn
-            except ANY_GIT_ERROR:
-                pass
-        except (TypeError,) + ANY_GIT_ERROR:
-            pass
-
         if not fnames:
             fnames = []
 
@@ -278,78 +266,118 @@ class GitRepo:
                 diffs += f"Added {fname}\n"
 
         try:
+            # Check if the branch has any commits
+            current_branch_has_commits = False
+            try:
+                current_branch_has_commits = not self.repo.head_is_unborn
+            except ANY_GIT_ERROR:
+                pass
+
+            # Get the index
+            index = self.repo.index
+            index_tree = index.write_tree()
+            index_obj = self.repo.get(index_tree)
+
             if current_branch_has_commits:
                 head = self.repo.revparse_single('HEAD')
                 
                 # Get diff between HEAD and index (staged changes)
-                index = self.repo.index
-                index_tree = index.write_tree()
-                index_obj = self.repo.get(index_tree)
                 diff_head_index = self.repo.diff(head, index_obj, paths=fnames)
                 index_diffs = diff_head_index.patch
+                diffs += index_diffs
                 
                 # Get diff between index and working directory
-                try:
+                # Use different methods depending on pygit2 version capabilities
+                if hasattr(self.repo, 'diff_tree_to_workdir'):
+                    # Modern pygit2 version
                     diff_index_workdir = self.repo.diff_tree_to_workdir(index_obj, paths=fnames)
                     working_diffs = diff_index_workdir.patch
-                except AttributeError:
-                    # Fallback for older pygit2 versions
-                    working_diffs = self._fallback_diff_workdir(fnames, index)
-                
-                diffs += index_diffs
-                diffs += working_diffs
-                return diffs
-
-            # For repos with no commits yet
-            index = self.repo.index
-            index_tree = index.write_tree()
-            index_obj = self.repo.get(index_tree)
-            
-            try:
-                # Get diff between index and working directory
-                diff = self.repo.diff_tree_to_workdir(index_obj, paths=fnames)
-                working_diffs = diff.patch
-                
-                # Empty diff for index since there's no HEAD
-                index_diffs = ""
-                diffs += index_diffs
-                diffs += working_diffs
-            except AttributeError:
-                # Fallback for older pygit2 versions that don't have diff_tree_to_workdir
-                working_diffs = self._fallback_diff_workdir(fnames, index)
-                diffs += working_diffs
+                    diffs += working_diffs
+                else:
+                    # Older pygit2 version - use diff_index_to_workdir if available
+                    if hasattr(self.repo, 'diff_index_to_workdir'):
+                        diff_index_workdir = self.repo.diff_index_to_workdir(index, paths=fnames)
+                        working_diffs = diff_index_workdir.patch
+                        diffs += working_diffs
+                    else:
+                        # Use direct file comparison as last resort
+                        for fname in fnames or self.repo.status().keys():
+                            status = self.repo.status().get(fname, 0)
+                            # Only process files with working directory changes
+                            if status & (pygit2.GIT_STATUS_WT_MODIFIED | 
+                                        pygit2.GIT_STATUS_WT_NEW |
+                                        pygit2.GIT_STATUS_WT_DELETED):
+                                try:
+                                    path = Path(os.path.join(self.root, fname))
+                                    if path.exists():
+                                        current_content = path.read_text()
+                                        # Get index content if file is in index
+                                        try:
+                                            index_entry = index[fname]
+                                            blob = self.repo[index_entry.id]
+                                            index_content = blob.data.decode('utf-8')
+                                            
+                                            diffs += f"diff --git a/{fname} b/{fname}\n"
+                                            diffs += f"--- a/{fname}\n"
+                                            diffs += f"+++ b/{fname}\n"
+                                            diffs += f"@@ -1,1 +1,1 @@\n"
+                                            diffs += f"-{index_content.strip()}\n"
+                                            diffs += f"+{current_content.strip()}\n"
+                                        except (KeyError, ValueError):
+                                            # New file
+                                            diffs += f"diff --git a/{fname} b/{fname}\n"
+                                            diffs += f"new file mode 100644\n"
+                                            diffs += f"--- /dev/null\n"
+                                            diffs += f"+++ b/{fname}\n"
+                                            diffs += f"@@ -0,0 +1,1 @@\n"
+                                            diffs += f"+{current_content.strip()}\n"
+                                except Exception as e:
+                                    self.io.tool_error(f"Error processing file {fname}: {e}")
+            else:
+                # For repos with no commits yet
+                # Get all files in the index
+                for fname in fnames or self.repo.status().keys():
+                    try:
+                        path = Path(os.path.join(self.root, fname))
+                        if path.exists():
+                            current_content = path.read_text()
+                            # Check if file is in index
+                            try:
+                                index_entry = index[fname]
+                                blob = self.repo[index_entry.id]
+                                index_content = blob.data.decode('utf-8')
+                                
+                                # Show as new file in index
+                                diffs += f"diff --git a/{fname} b/{fname}\n"
+                                diffs += f"new file mode 100644\n"
+                                diffs += f"--- /dev/null\n"
+                                diffs += f"+++ b/{fname}\n"
+                                diffs += f"@@ -0,0 +1,1 @@\n"
+                                diffs += f"+{index_content.strip()}\n"
+                                
+                                # If working dir is different from index
+                                if current_content != index_content:
+                                    diffs += f"\ndiff --git a/{fname} b/{fname}\n"
+                                    diffs += f"--- a/{fname}\n"
+                                    diffs += f"+++ b/{fname}\n"
+                                    diffs += f"@@ -1,1 +1,1 @@\n"
+                                    diffs += f"-{index_content.strip()}\n"
+                                    diffs += f"+{current_content.strip()}\n"
+                            except (KeyError, ValueError):
+                                # File not in index but in working dir
+                                diffs += f"diff --git a/{fname} b/{fname}\n"
+                                diffs += f"new file mode 100644\n"
+                                diffs += f"--- /dev/null\n"
+                                diffs += f"+++ b/{fname}\n"
+                                diffs += f"@@ -0,0 +1,1 @@\n"
+                                diffs += f"+{current_content.strip()}\n"
+                    except Exception as e:
+                        self.io.tool_error(f"Error processing file {fname}: {e}")
 
             return diffs
         except ANY_GIT_ERROR as err:
             self.io.tool_error(f"Unable to diff: {err}")
             return ""  # Return empty string instead of None
-            
-    def _fallback_diff_workdir(self, fnames, index):
-        """Fallback method to generate diffs for older pygit2 versions"""
-        working_diffs = ""
-        for fname in fnames or self.repo.status().keys():
-            try:
-                path = Path(fname)
-                if path.exists():
-                    current_content = path.read_text()
-                    # Check if file is in index
-                    try:
-                        index_entry = index[fname]
-                        blob = self.repo[index_entry.id]
-                        index_content = blob.data.decode('utf-8')
-                        if current_content != index_content:
-                            working_diffs += f"diff --git a/{fname} b/{fname}\n"
-                            working_diffs += f"--- a/{fname}\n"
-                            working_diffs += f"+++ b/{fname}\n"
-                            working_diffs += f"@@ -1 +1 @@\n"
-                            working_diffs += f"-{index_content.strip()}\n"
-                            working_diffs += f"+{current_content.strip()}\n"
-                    except (KeyError, ValueError):
-                        working_diffs += f"New file: {fname}\n"
-                        working_diffs += f"+{current_content.strip()}\n"
-            except Exception:
-                pass
-        return working_diffs
 
     def diff_commits(self, pretty, from_commit, to_commit):
         from_commit_obj = self.repo.revparse_single(from_commit)
