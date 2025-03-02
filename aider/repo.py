@@ -158,18 +158,19 @@ class GitRepo:
 
         try:
             # Stage files
+            index = self.repo.index
             if fnames:
                 for fname in fnames:
                     try:
                         rel_path = os.path.relpath(fname, self.root)
-                        self.repo.index.add(rel_path)
+                        index.add(rel_path)
                     except (ValueError, pygit2.GitError) as err:
                         self.io.tool_error(f"Unable to add {fname}: {err}")
             else:
-                self.repo.index.add_all()
+                index.add_all()
 
-            self.repo.index.write()
-            tree = self.repo.index.write_tree()
+            index.write()
+            tree = index.write_tree()
             signature = pygit2.Signature(f"{self.repo.config['user.name']} (aider)", self.repo.config["user.email"])
             parents = [self.repo.head.target] if not self.repo.head_is_unborn else []
             commit_id = self.repo.create_commit('HEAD', signature, signature, full_commit_message, tree, parents)
@@ -256,11 +257,9 @@ class GitRepo:
 
         try:
             if current_branch_has_commits:
-                args = ["HEAD", "--"] + list(fnames)
-                diffs += self.repo.diff(*args).patch
+                diffs += self.repo.diff("HEAD", None, paths=fnames).patch
                 return diffs
 
-            wd_args = ["--"] + list(fnames)
             index_diffs = self.repo.diff("HEAD", None, paths=fnames).patch
             working_diffs = self.repo.diff(None, paths=fnames).patch
             diffs += index_diffs
@@ -316,8 +315,7 @@ class GitRepo:
                 self.tree_files[commit] = set(files)
 
         # Add staged files
-        index = self.repo.index
-        staged_files = [path for path, _ in index.entries.keys()]
+        staged_files = [path for path, _ in self.repo.index.entries.keys()]
         files.update(self.normalize_path(path) for path in staged_files)
 
         res = [fname for fname in files if not self.ignored_file(fname)]
