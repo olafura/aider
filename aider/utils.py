@@ -71,6 +71,10 @@ class GitTemporaryDirectory(ChdirTemporaryDirectory):
 
 
 def make_repo(path=None):
+    """
+    Initialize a git repository for testing purposes.
+    This function is maintained for backward compatibility.
+    """
     import pygit2
 
     if not path:

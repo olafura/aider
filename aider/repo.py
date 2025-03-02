@@ -16,7 +16,8 @@ except ImportError:
 
 import pathspec
 
-from aider import prompts, utils
+from aider import prompts
+from aider.utils import safe_abs_path
 
 from .dump import dump  # noqa: F401
 
@@ -81,6 +82,33 @@ class GitRepo:
         else:
             check_fnames = ["."]
 
+        # Initialize a new repository if git_dname is provided and no existing repo is found
+        if git_dname and not os.path.exists(os.path.join(git_dname, '.git')):
+            try:
+                self.repo = pygit2.init_repository(git_dname, initial_head='main')
+                self.root = safe_abs_path(self.repo.workdir)
+                if io:
+                    io.tool_output(f"Initialized new git repository in {git_dname}")
+                
+                # Set up basic git config if not already set
+                if 'user.name' not in self.repo.config:
+                    self.repo.config['user.name'] = 'Aider User'
+                if 'user.email' not in self.repo.config:
+                    self.repo.config['user.email'] = 'aider@example.com'
+                    
+                if aider_ignore_file:
+                    self.aider_ignore_file = Path(aider_ignore_file)
+                return
+            except ANY_GIT_ERROR as err:
+                if io:
+                    io.tool_error(f"Error initializing git repository: {err}")
+                self.repo = None
+                self.root = os.path.abspath(git_dname)
+                if aider_ignore_file:
+                    self.aider_ignore_file = Path(aider_ignore_file)
+                return
+
+        # Try to find an existing repository
         repo_path = None
         for fname in check_fnames:
             fname = Path(fname).resolve()
@@ -101,7 +129,7 @@ class GitRepo:
         else:
             try:
                 self.repo = pygit2.Repository(repo_path)
-                self.root = utils.safe_abs_path(self.repo.workdir)
+                self.root = safe_abs_path(self.repo.workdir)
             except ANY_GIT_ERROR as err:
                 if io:
                     io.tool_error(f"Error opening git repository: {err}")
@@ -433,7 +461,7 @@ class GitRepo:
 
     def abs_root_path(self, path):
         res = Path(self.root) / path
-        return utils.safe_abs_path(res)
+        return safe_abs_path(res)
 
     def get_dirty_files(self):
         """
