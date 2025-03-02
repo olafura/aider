@@ -163,7 +163,7 @@ class GitRepo:
             commit_hash = commit_id.hex[:7]
             self.io.tool_output(f"Commit {commit_hash} {commit_message}", bold=True)
             return commit_hash, commit_message
-        except pygit2.GitError as err:
+        except ANY_GIT_ERROR as err:
             self.io.tool_error(f"Unable to commit: {err}")
         finally:
             # Restore the env
