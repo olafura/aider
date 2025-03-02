@@ -144,7 +144,6 @@ class GitRepo:
         try:
             # Stage files
             index = self.repo.index
-            index.read()
             if fnames:
                 for fname in fnames:
                     try:
@@ -250,7 +249,6 @@ class GitRepo:
 
             # For repos with no commits yet
             index = self.repo.index
-            index.read()
             index_tree = index.write_tree()
             index_obj = self.repo.get(index_tree)
             
