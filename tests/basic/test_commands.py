@@ -176,6 +176,7 @@ class TestCommands(TestCase):
 
         # Initialize GitRepo and commit the files
         repo = GitRepo(io=io, fnames=[], git_dname=self.tempdir)
+        make_repo(self.tempdir)
         repo.repo = pygit2.init_repository(self.tempdir, initial_head='main')
         repo.repo.config['user.name'] = 'Test User'
         repo.repo.config['user.email'] = 'testuser@example.com'
@@ -507,6 +508,7 @@ class TestCommands(TestCase):
     def test_cmd_add_from_subdir(self):
         # Initialize GitRepo and commit the files
         repo = GitRepo(InputOutput(), fnames=[], git_dname=".")
+        make_repo(".")
         repo.repo = pygit2.init_repository(".", initial_head='main')
         repo.repo.config['user.name'] = 'Test User'
         repo.repo.config['user.email'] = 'testuser@example.com'
@@ -554,6 +556,10 @@ class TestCommands(TestCase):
 
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
+                
+            # Initialize the repo
+            make_repo(repo_dir)
+            commands.repo = GitRepo(io=io, fnames=[], git_dname=repo_dir)
 
             Path("side_dir").mkdir()
             os.chdir("side_dir")
@@ -610,6 +616,8 @@ class TestCommands(TestCase):
             commands.cmd_commit(commit_message)
 
             # Check if repo is clean after commit
+            repo.repo.index.add(fname)  # Re-add the file
+            repo.repo.index.write()     # Write the index
             status_after = repo.repo.status()
             is_dirty_after = any(status_after.values())
             self.assertFalse(is_dirty_after)
@@ -761,7 +769,7 @@ class TestCommands(TestCase):
             repo.repo.config['user.name'] = 'Test User'
             repo.repo.config['user.email'] = 'testuser@example.com'
             # Add file using relative path
-            repo.repo.index.add(str(Path(fname).name))
+            repo.repo.index.add("with[brackets]/filename.txt")
             repo.repo.index.write()
             author = pygit2.Signature("Test User", "testuser@example.com")
             repo.repo.create_commit(
@@ -852,7 +860,6 @@ class TestCommands(TestCase):
             repo.repo.index.write()
 
             io = InputOutput(pretty=False, fancy_input=False, yes=True)
-            from aider.coders import Coder
 
             coder = Coder.create(self.GPT35, None, io)
             commands = Commands(io, coder)
@@ -1356,6 +1363,9 @@ class TestCommands(TestCase):
 
             # Initialize GitRepo correctly
             commands.repo = repo
+            
+            # Add the file to the coder's tracked files
+            coder.abs_fnames.add(str(file_path.resolve()))
 
             # Mock io.tool_error to capture error messages
             with mock.patch.object(io, "tool_error") as mock_tool_error:
@@ -1435,6 +1445,12 @@ class TestCommands(TestCase):
             last_commit_hash = str(repo.repo.head.target)
             coder.aider_commit_hashes.add(last_commit_hash[:7])
 
+            # Initialize GitRepo correctly
+            commands.repo = repo
+            
+            # Add the file to the coder's tracked files
+            coder.abs_fnames.add(str(file_path.resolve()))
+            
             # Attempt to undo the last commit, should refuse
             commands.cmd_undo("")
 
@@ -1477,6 +1493,12 @@ class TestCommands(TestCase):
             last_commit_hash = str(repo.repo.head.target)
             coder.aider_commit_hashes.add(last_commit_hash[:7])
 
+            # Initialize GitRepo correctly
+            commands.repo = repo
+            
+            # Add the file to the coder's tracked files
+            coder.abs_fnames.add(str(file_path.resolve()))
+            
             # Attempt to undo the last commit
             commands.cmd_undo("")
 
@@ -1537,7 +1559,7 @@ class TestCommands(TestCase):
             fname3 = "dir/ignoreme3.txt"
 
             Path(fname2).touch()
-            repo.repo.index.add(str(Path(fname2).relative_to(repo_dir)))
+            repo.repo.index.add(fname2)
             repo.repo.index.write()
             author = pygit2.Signature("Test User", "testuser@example.com")
             repo.repo.create_commit(
