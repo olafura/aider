@@ -300,7 +300,7 @@ class TestRepo(unittest.TestCase):
             git_repo.commit(fnames=[str(fname)], aider_edits=True)
 
             # Check the committer name
-            commit = repo[raw_repo.head.target]
+            commit = repo[repo.head.target]
             self.assertEqual(commit.author.name, "Test User (aider)")
             self.assertEqual(commit.committer.name, "Test User (aider)")
 
@@ -309,7 +309,7 @@ class TestRepo(unittest.TestCase):
             git_repo.commit(fnames=[str(fname)], aider_edits=False)
 
             # Check the committer name
-            commit = repo[raw_repo.head.target]
+            commit = repo[repo.head.target]
             self.assertEqual(commit.author.name, "Test User")
             self.assertEqual(commit.committer.name, "Test User (aider)")
 
