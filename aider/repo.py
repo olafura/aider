@@ -287,55 +287,11 @@ class GitRepo:
                 diffs += index_diffs
                 
                 # Get diff between index and working directory
-                # Use different methods depending on pygit2 version capabilities
-                if hasattr(self.repo, 'diff_tree_to_workdir'):
-                    # Modern pygit2 version
-                    diff_index_workdir = self.repo.diff_tree_to_workdir(index_obj, paths=fnames)
-                    working_diffs = diff_index_workdir.patch
-                    diffs += working_diffs
-                else:
-                    # Older pygit2 version - use diff_index_to_workdir if available
-                    if hasattr(self.repo, 'diff_index_to_workdir'):
-                        diff_index_workdir = self.repo.diff_index_to_workdir(index, paths=fnames)
-                        working_diffs = diff_index_workdir.patch
-                        diffs += working_diffs
-                    else:
-                        # Use direct file comparison as last resort
-                        for fname in fnames or self.repo.status().keys():
-                            status = self.repo.status().get(fname, 0)
-                            # Only process files with working directory changes
-                            if status & (pygit2.GIT_STATUS_WT_MODIFIED | 
-                                        pygit2.GIT_STATUS_WT_NEW |
-                                        pygit2.GIT_STATUS_WT_DELETED):
-                                try:
-                                    path = Path(os.path.join(self.root, fname))
-                                    if path.exists():
-                                        current_content = path.read_text()
-                                        # Get index content if file is in index
-                                        try:
-                                            index_entry = index[fname]
-                                            blob = self.repo[index_entry.id]
-                                            index_content = blob.data.decode('utf-8')
-                                            
-                                            diffs += f"diff --git a/{fname} b/{fname}\n"
-                                            diffs += f"--- a/{fname}\n"
-                                            diffs += f"+++ b/{fname}\n"
-                                            diffs += f"@@ -1,1 +1,1 @@\n"
-                                            diffs += f"-{index_content.strip()}\n"
-                                            diffs += f"+{current_content.strip()}\n"
-                                        except (KeyError, ValueError):
-                                            # New file
-                                            diffs += f"diff --git a/{fname} b/{fname}\n"
-                                            diffs += f"new file mode 100644\n"
-                                            diffs += f"--- /dev/null\n"
-                                            diffs += f"+++ b/{fname}\n"
-                                            diffs += f"@@ -0,0 +1,1 @@\n"
-                                            diffs += f"+{current_content.strip()}\n"
-                                except Exception as e:
-                                    self.io.tool_error(f"Error processing file {fname}: {e}")
+                diff_index_workdir = self.repo.diff_tree_to_workdir(index_obj, paths=fnames)
+                working_diffs = diff_index_workdir.patch
+                diffs += working_diffs
             else:
-                # For repos with no commits yet
-                # Get all files in the index
+                # For repos with no commits yet, manually create diffs
                 for fname in fnames or self.repo.status().keys():
                     try:
                         path = Path(os.path.join(self.root, fname))
