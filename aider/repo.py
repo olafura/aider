@@ -16,8 +16,7 @@ except ImportError:
 
 import pathspec
 
-from aider import prompts
-from aider.utils import safe_abs_path
+from aider import prompts, utils
 
 from .dump import dump  # noqa: F401
 
@@ -44,12 +43,11 @@ class GitRepo:
     ignore_file_cache = {}
     git_repo_error = None
 
-
     def __init__(
         self,
-        io=None,
-        fnames=None,
-        git_dname=None,
+        io,
+        fnames,
+        git_dname,
         aider_ignore_file=None,
         models=None,
         attribute_author=True,
@@ -59,8 +57,6 @@ class GitRepo:
         commit_prompt=None,
         subtree_only=False,
     ):
-        if fnames is None:
-            fnames = []
         self.io = io
         self.models = models
 
@@ -82,68 +78,37 @@ class GitRepo:
         else:
             check_fnames = ["."]
 
-        # Initialize a new repository if git_dname is provided and no existing repo is found
-        if git_dname and not os.path.exists(os.path.join(git_dname, '.git')):
-            try:
-                self.repo = pygit2.init_repository(git_dname, initial_head='main')
-                self.root = safe_abs_path(self.repo.workdir)
-                if io:
-                    io.tool_output(f"Initialized new git repository in {git_dname}")
-                
-                # Set up basic git config if not already set
-                if 'user.name' not in self.repo.config:
-                    self.repo.config['user.name'] = 'Aider User'
-                if 'user.email' not in self.repo.config:
-                    self.repo.config['user.email'] = 'aider@example.com'
-                    
-                if aider_ignore_file:
-                    self.aider_ignore_file = Path(aider_ignore_file)
-                return
-            except ANY_GIT_ERROR as err:
-                if io:
-                    io.tool_error(f"Error initializing git repository: {err}")
-                self.repo = None
-                self.root = os.path.abspath(git_dname)
-                if aider_ignore_file:
-                    self.aider_ignore_file = Path(aider_ignore_file)
-                return
-
-        # Try to find an existing repository
-        repo_path = None
+        repo_paths = []
         for fname in check_fnames:
-            fname = Path(fname).resolve()
+            fname = Path(fname)
+            fname = fname.resolve()
+
             if not fname.exists() and fname.parent.exists():
                 fname = fname.parent
 
             try:
-                repo_path = pygit2.discover_repository(str(fname))
-                if repo_path:
-                    break
+                repo_path = pygit2.discover_repository(str(fname)).workdir
+                repo_path = utils.safe_abs_path(repo_path)
+                repo_paths.append(repo_path)
             except ANY_GIT_ERROR:
-                continue
+                pass
 
-        if not repo_path:
-            # No git repository found
-            self.repo = None
-            self.root = os.path.abspath(git_dname) if git_dname else os.getcwd()
-        else:
-            try:
-                self.repo = pygit2.Repository(repo_path)
-                self.root = safe_abs_path(self.repo.workdir)
-            except ANY_GIT_ERROR as err:
-                if io:
-                    io.tool_error(f"Error opening git repository: {err}")
-                self.repo = None
-                self.root = os.path.abspath(git_dname) if git_dname else os.getcwd()
+        num_repos = len(set(repo_paths))
+
+        if num_repos == 0:
+            raise FileNotFoundError
+        if num_repos > 1:
+            self.io.tool_error("Files are in different git repos.")
+            raise FileNotFoundError
+
+        self.repo = pygit2.Repository(repo_paths.pop())
+        self.root = utils.safe_abs_path(self.repo.workdir)
 
         if aider_ignore_file:
             self.aider_ignore_file = Path(aider_ignore_file)
 
-
-
-
     def commit(self, fnames=None, context=None, message=None, aider_edits=False):
-        if not fnames and not self.repo.status():
+        if not fnames and not self.repo.status(untracked_files="no"):
             return
 
         diffs = self.get_diffs(fnames)
@@ -164,6 +129,16 @@ class GitRepo:
             commit_message = "(no commit message provided)"
 
         full_commit_message = commit_message
+        # if context:
+        #    full_commit_message += "\n\n# Aider chat conversation:\n\n" + context
+
+        if fnames:
+            fnames = [str(self.abs_root_path(fn)) for fn in fnames]
+            for fname in fnames:
+                try:
+                    self.repo.index.add(fname)
+                except ANY_GIT_ERROR as err:
+                    self.io.tool_error(f"Unable to add {fname}: {err}")
 
         original_user_name = self.repo.config["user.name"]
         original_committer_name_env = os.environ.get("GIT_COMMITTER_NAME")
@@ -177,30 +152,15 @@ class GitRepo:
             os.environ["GIT_AUTHOR_NAME"] = committer_name
 
         try:
-            # Stage files
-            index = self.repo.index
-            if fnames:
-                for fname in fnames:
-                    try:
-                        rel_path = os.path.relpath(fname, self.root)
-                        index.add(rel_path)
-                    except (ValueError, pygit2.GitError) as err:
-                        self.io.tool_error(f"Unable to add {fname}: {err}")
-            else:
-                index.add_all()
-
-            index.write()
-            tree = index.write_tree()
-            signature = pygit2.Signature(f"{original_user_name} (aider)", self.repo.config["user.email"])
-            parents = [self.repo.head.target] if not self.repo.head_is_unborn else []
-            commit_id = self.repo.create_commit('HEAD', signature, signature, full_commit_message, tree, parents)
-            commit_hash = commit_id.hex[:7]
+            self.repo.git.commit(cmd)
+            commit_hash = self.get_head_commit_sha(short=True)
             self.io.tool_output(f"Commit {commit_hash} {commit_message}", bold=True)
             return commit_hash, commit_message
         except ANY_GIT_ERROR as err:
             self.io.tool_error(f"Unable to commit: {err}")
         finally:
             # Restore the env
+
             if self.attribute_committer:
                 if original_committer_name_env is not None:
                     os.environ["GIT_COMMITTER_NAME"] = original_committer_name_env
@@ -257,6 +217,18 @@ class GitRepo:
 
     def get_diffs(self, fnames=None):
         # We always want diffs of index and working dir
+
+        current_branch_has_commits = False
+        try:
+            last = repo[repo.head.target]
+            try:
+                commits = self.repo.walk(last.id, pygit2.enums.SortMode.TIME)
+                current_branch_has_commits = any(commits)
+            except ANY_GIT_ERROR:
+                pass
+        except (TypeError,) + ANY_GIT_ERROR:
+            pass
+
         if not fnames:
             fnames = []
 
@@ -266,80 +238,34 @@ class GitRepo:
                 diffs += f"Added {fname}\n"
 
         try:
-            # Check if the branch has any commits
-            current_branch_has_commits = False
-            try:
-                current_branch_has_commits = not self.repo.head_is_unborn
-            except ANY_GIT_ERROR:
-                pass
+            if current_branch_has_commits:
+                args = ["HEAD", "--"] + list(fnames)
+                diffs += self.repo.git.diff(*args)
+                return diffs
 
             # Get the index
             index = self.repo.index
             index_tree = index.write_tree()
             index_obj = self.repo.get(index_tree)
 
-            if current_branch_has_commits:
-                head = self.repo.revparse_single('HEAD')
-                
-                # Get diff between HEAD and index (staged changes)
-                diff_head_index = self.repo.diff(head, index_obj, paths=fnames)
-                index_diffs = diff_head_index.patch
-                diffs += index_diffs
-                
-                # Get diff between index and working directory
-                diff_index_workdir = self.repo.diff_tree_to_workdir(index_obj, paths=fnames)
-                working_diffs = diff_index_workdir.patch
-                diffs += working_diffs
-            else:
-                # For repos with no commits yet, manually create diffs
-                for fname in fnames or self.repo.status().keys():
-                    try:
-                        path = Path(os.path.join(self.root, fname))
-                        if path.exists():
-                            current_content = path.read_text()
-                            # Check if file is in index
-                            try:
-                                index_entry = index[fname]
-                                blob = self.repo[index_entry.id]
-                                index_content = blob.data.decode('utf-8')
-                                
-                                # Show as new file in index
-                                diffs += f"diff --git a/{fname} b/{fname}\n"
-                                diffs += f"new file mode 100644\n"
-                                diffs += f"--- /dev/null\n"
-                                diffs += f"+++ b/{fname}\n"
-                                diffs += f"@@ -0,0 +1,1 @@\n"
-                                diffs += f"+{index_content.strip()}\n"
-                                
-                                # If working dir is different from index
-                                if current_content != index_content:
-                                    diffs += f"\ndiff --git a/{fname} b/{fname}\n"
-                                    diffs += f"--- a/{fname}\n"
-                                    diffs += f"+++ b/{fname}\n"
-                                    diffs += f"@@ -1,1 +1,1 @@\n"
-                                    diffs += f"-{index_content.strip()}\n"
-                                    diffs += f"+{current_content.strip()}\n"
-                            except (KeyError, ValueError):
-                                # File not in index but in working dir
-                                diffs += f"diff --git a/{fname} b/{fname}\n"
-                                diffs += f"new file mode 100644\n"
-                                diffs += f"--- /dev/null\n"
-                                diffs += f"+++ b/{fname}\n"
-                                diffs += f"@@ -0,0 +1,1 @@\n"
-                                diffs += f"+{current_content.strip()}\n"
-                    except Exception as e:
-                        self.io.tool_error(f"Error processing file {fname}: {e}")
+            diffs += self.repo.git.diff(*index_args)
+            diffs += self.repo.git.diff(*wd_args)
 
             return diffs
         except ANY_GIT_ERROR as err:
             self.io.tool_error(f"Unable to diff: {err}")
-            return ""  # Return empty string instead of None
 
     def diff_commits(self, pretty, from_commit, to_commit):
-        from_commit_obj = self.repo.revparse_single(from_commit)
-        to_commit_obj = self.repo.revparse_single(to_commit)
-        diff = self.repo.diff_tree_to_tree(from_commit_obj.tree, to_commit_obj.tree)
-        return diff.patch
+        args = []
+        if pretty:
+            args += ["--color"]
+        else:
+            args += ["--color=never"]
+
+        args += [from_commit, to_commit]
+        diffs = self.repo.git.diff(*args)
+
+        return diffs
 
     def get_tracked_files(self):
         if not self.repo:
@@ -355,9 +281,8 @@ class GitRepo:
             commit = None
         except ANY_GIT_ERROR as err:
             self.git_repo_error = err
-            if self.io:
-                self.io.tool_error(f"Unable to list files in git repo: {err}")
-                self.io.tool_output("Is your git repo corrupted?")
+            self.io.tool_error(f"Unable to list files in git repo: {err}")
+            self.io.tool_output("Is your git repo corrupted?")
             return []
 
         files = set()
@@ -366,24 +291,21 @@ class GitRepo:
                 files = self.tree_files[commit.id]
             else:
                 try:
-                    # Traverse the tree to find all files
-                    def traverse_tree(tree, path=""):
-                        for entry in tree:
-                            entry_path = path + entry.name if not path else f"{path}/{entry.name}"
-                            if entry.type_str == "tree":
-                                # It's a directory, recurse
-                                subtree = self.repo[entry.id]
-                                traverse_tree(subtree, entry_path)
-                            elif entry.type_str == "blob":
-                                # It's a file
-                                files.add(entry_path)
-                    
-                    traverse_tree(commit.tree)
+                    iterator = commit.tree.__iter__()
+                    while True:
+                        try:
+                            blob = next(iterator)
+                            if blob.type_str == "blob":  # blob is a file
+                                files.add(blob.name)
+                        except IndexError:
+                            self.io.tool_warning(f"GitRepo: read error skipping {blob.name}")
+                            continue
+                        except StopIteration:
+                            break
                 except ANY_GIT_ERROR as err:
                     self.git_repo_error = err
-                    if self.io:
-                        self.io.tool_error(f"Unable to list files in git repo: {err}")
-                        self.io.tool_output("Is your git repo corrupted?")
+                    self.io.tool_error(f"Unable to list files in git repo: {err}")
+                    self.io.tool_output("Is your git repo corrupted?")
                     return []
                 files = set(self.normalize_path(path) for path in files)
                 self.tree_files[commit.id] = set(files)
@@ -441,7 +363,7 @@ class GitRepo:
 
     def git_ignored_file(self, path):
         if not self.repo:
-            return False
+            return
         try:
             if self.repo.path_is_ignored(path):
                 return True
@@ -494,7 +416,7 @@ class GitRepo:
 
     def abs_root_path(self, path):
         res = Path(self.root) / path
-        return safe_abs_path(res)
+        return utils.safe_abs_path(res)
 
     def get_dirty_files(self):
         """
@@ -506,9 +428,6 @@ class GitRepo:
         return list(self.repo.status().keys())
 
     def is_dirty(self, path=None):
-        if not self.repo:
-            return False
-            
         if path and not self.path_in_repo(path):
             return True
 
@@ -522,8 +441,6 @@ class GitRepo:
         return status.get(rel_path, 0) != 0
 
     def get_head_commit(self):
-        if not self.repo:
-            return None
         try:
             if self.repo.head_is_unborn:
                 return None
@@ -534,7 +451,7 @@ class GitRepo:
     def get_head_commit_sha(self, short=False):
         commit = self.get_head_commit()
         if not commit:
-            return None
+            return
         if short:
             return commit.id.hex[:7]
         return commit.id.hex
