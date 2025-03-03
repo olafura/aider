@@ -174,8 +174,6 @@ class GitRepo:
                     del os.environ["GIT_AUTHOR_NAME"]
 
     def get_rel_repo_dir(self):
-        if not self.repo:
-            return None
         try:
             return os.path.relpath(self.repo.path, os.getcwd())
         except (ValueError, OSError):
@@ -330,11 +328,7 @@ class GitRepo:
         if res:
             return res
 
-        try:
-            relative = Path(self.root).relative_to(Path(self.repo.workdir))
-            path = str(PurePosixPath(relative) / PurePosixPath(path))
-        except ValueError:
-            path = str(Path(self.root) / path)
+        path = str(Path(PurePosixPath((Path(self.root) / path).relative_to(self.root))))
         self.normalized_path[orig_path] = path
         return path
 
